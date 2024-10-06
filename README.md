@@ -2,7 +2,7 @@
 
 ![Figure 2: The inference stage of the neural EM algorithm.](/img/schematic.png?raw=true)
 
-> _**Figure 2**: The inference stage of the neural EM algorithm. Data $\boldsymbol{Z}$ with missing entries are completed by simulating conditionally on the incomplete data $\boldsymbol{Z}_1$ and the current estimates $\boldsymbol{\theta}^{(l)}$. The conditionally-independent replicates are then input to a neural Bayes estimator trained to approximate the MAP estimator, with the resulting estimates used for conditional simulation in the next iteration of the algorithm._
+> _**Figure 2**: The inference stage of the neural EM algorithm. Data with missing entries are completed by simulating conditionally on the incomplete data and the current estimates. The conditionally-independent replicates are then input to a neural Bayes estimator trained to approximate the MAP estimator, with the resulting estimates used for conditional simulation in the next iteration of the algorithm._
 
 This repository contains the source code for reproducing the results in "Neural Parameter Estimation with Incomplete Data" (Sainsbury-Dale, Zammit-Mangion, Cressie, Huser, 2024+).
 
