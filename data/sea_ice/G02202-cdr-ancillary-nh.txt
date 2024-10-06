@@ -1,0 +1,51 @@
+File data/sea_ice/G02202-cdr-ancillary-nh.nc (NC_FORMAT_NETCDF4):
+
+     7 variables (excluding dimension variables):
+        float latitude[x,y]   (Chunking: [304,448])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: latitude
+            comment: Latitude at the center of the grid cell
+        float longitude[x,y]   (Chunking: [304,448])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: longitude
+            comment: Longitude at the center of the grid cell
+        int crs[]   (Contiguous storage)  
+            grid_mapping_name: polar_stereographic
+            scaling_factor: 1
+            units: meters
+            false_easting: 0
+            false_northing: 0
+            semimajor_axis: 6378273
+            semiminor_axis: 6356889.449
+            GeoTransform: -3850000.0 25000.0 0 5850000.0 0 -25000.0
+            latitude_of_projection_origin: 90
+            standard_parallel: 70
+            straight_vertical_longitude_from_pole: 135
+            longitude_of_projection_origin: -45
+        unsigned byte landmask[x,y]   (Chunking: [304,448])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: Landmask
+            flag_values: 0: Ocean, 2: Lake, 253: Coast, 254: Land
+        unsigned byte polehole[x,y]   (Chunking: [304,448])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: polehole
+            bitmask_values: Values are bit masks and may be added:  0: No polehole, 1: SMMR-polehole, 2: SSMI-polehole, 4: SSMIS-polehole
+        unsigned byte valid_ice_mask[x,y,month]   (Chunking: [304,448,12])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: valid_ice_mask
+            flag_values: 0: Not valid seaice location, 1: Valid seaice location
+        short min_concentration[x,y]   (Chunking: [304,448])  (Compression: shuffle,level 4)
+            grid_mapping: crs
+            long_name: min_concentration_mask
+            comment: 0: ocean far from land, 1: land, Other: Minimum sea ice concentration in 10ths of K
+
+     3 dimensions:
+        x  Size:304 
+            long_name: x
+            units: meters
+            axis: X
+        y  Size:448 
+            long_name: y
+            units: meters
+            axis: Y
+        month  Size:12 

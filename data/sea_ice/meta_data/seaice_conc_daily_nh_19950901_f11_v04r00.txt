@@ -1,0 +1,242 @@
+File data/sea_ice/raw_data/seaice_conc_daily_nh_19950901_f11_v04r00.nc (NC_FORMAT_NETCDF4):
+
+     12 variables (excluding dimension variables):
+        unsigned byte cdr_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 255
+            _Unsigned: true
+            long_name: NOAA/NSIDC Climate Data Record of Passive Microwave Daily Northern Hemisphere Sea Ice Concentration
+            standard_name: sea_ice_area_fraction
+            units: 1
+            coordinates: time ygrid xgrid
+            flag_values: 251
+             flag_values: 252
+             flag_values: 253
+             flag_values: 254
+             flag_values: 255
+            flag_meanings: pole_hole lakes coastal land_mask missing_data
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            reference: https://nsidc.org/data/g02202/versions/4/
+            ancillary_variables: stdev_of_cdr_seaice_conc qa_of_cdr_seaice_conc
+            valid_range: 0
+             valid_range: 100
+            scale_factor: 0.00999999977648258
+        unsigned byte melt_onset_day_cdr_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 255
+            _Unsigned: true
+            long_name: Day of Snow Melt Onset Over Sea Ice
+            units: 1
+            coordinates: time ygrid xgrid
+            missing_value: 255
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 60
+             valid_range: 244
+        unsigned byte nsidc_bt_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 255
+            _Unsigned: true
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration by Bootstrap algorithm processed by NSIDC
+            standard_name: sea_ice_area_fraction
+            units: 1
+            coordinates: time ygrid xgrid
+            flag_values: 251
+             flag_values: 252
+             flag_values: 253
+             flag_values: 254
+             flag_values: 255
+            flag_meanings: pole_hole unused coastal land_mask missing_data
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 0
+             valid_range: 100
+            scale_factor: 0.00999999977648258
+        unsigned byte nsidc_nt_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 255
+            _Unsigned: true
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration by NASA Team algorithm processed by NSIDC
+            standard_name: sea_ice_area_fraction
+            units: 1
+            coordinates: time ygrid xgrid
+            flag_values: 251
+             flag_values: 252
+             flag_values: 253
+             flag_values: 254
+             flag_values: 255
+            flag_meanings: pole_hole unused coastal land_mask missing_data
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 0
+             valid_range: 100
+            scale_factor: 0.00999999977648258
+        char projection[]   (Contiguous storage)  
+            grid_boundary_top_projected_y: 5850000
+            grid_boundary_bottom_projected_y: -5350000
+            grid_boundary_right_projected_x: 3750000
+            grid_boundary_left_projected_x: -3850000
+            parent_grid_cell_row_subset_start: 0
+            parent_grid_cell_row_subset_end: 448
+            parent_grid_cell_column_subset_start: 0
+            parent_grid_cell_column_subset_end: 304
+            spatial_ref: PROJCS["NSIDC Sea Ice Polar Stereographic North",GEOGCS["Unspecified datum based upon the Hughes 1980 ellipsoid",DATUM["Not_specified_based_on_Hughes_1980_ellipsoid",SPHEROID["Hughes 1980",6378273,298.279411123061,AUTHORITY["EPSG","7058"]],AUTHORITY["EPSG","6054"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4054"]],UNIT["metre",1,AUTHORITY["EPSG","9001"]],PROJECTION["Polar_Stereographic"],PARAMETER["latitude_of_origin",70],PARAMETER["central_meridian",-45],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],AUTHORITY["EPSG","3411"],AXIS["X",UNKNOWN],AXIS["Y",UNKNOWN]]
+            proj4text: +proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 +k=1 +x_0=0 +y_0=0 +a=6378273 +b=6356889.449 +units=m +no_defs
+            srid: urn:ogc:def:crs:EPSG::3411
+            GeoTransform: -3850000.0 25000.0 0 5850000.0 0 -25000.0
+            grid_mapping_name: polar_stereographic
+            latitude_of_projection_origin: 90
+            standard_parallel: 70
+            straight_vertical_longitude_from_pole: 135
+            longitude_of_projection_origin: -45
+            scaling_factor: 1
+            false_easting: 0
+            false_northing: 0
+            semimajor_radius: 6378273
+            semiminor_radius: 6356889.449
+            units: meters
+        unsigned byte qa_of_cdr_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 0
+            _Unsigned: true
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration QC flags
+            standard_name: sea_ice_area_fraction status_flag
+            coordinates: time ygrid xgrid
+            flag_masks: 1
+             flag_masks: 2
+             flag_masks: 4
+             flag_masks: 8
+             flag_masks: 16
+             flag_masks: 32
+             flag_masks: 64
+             flag_masks: 128
+            flag_mask_meanings: BT_weather_filter_applied NT_weather_filter_applied BT_land_spillover_filter_applied NT_land_spillover_filter_applied valid_ice_mask_applied spatial_interpolation_applied temporal_interpolation_applied melt_start_detected
+            missing_value: 0
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 1
+             valid_range: 255
+        unsigned byte spatial_interpolation_flag[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 0
+            _Unsigned: true
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration spatial interpolation flags
+            standard_name: interpolation_flag
+            coordinates: time ygrid xgrid
+            flag_masks: 1
+             flag_masks: 2
+             flag_masks: 4
+             flag_masks: 8
+             flag_masks: 16
+             flag_masks: 32
+            flag_meanings: 19v_tb_value_interpolated 19h_tb_value_interpolated 22v_tb_value_interpolated 37v_tb_value_interpolated 37h_tb_value_interpolated pole_hole_value_interpolated
+            missing_value: 0
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 0
+             valid_range: 63
+        float stdev_of_cdr_seaice_conc[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: -1
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration Source Estimated Standard Deviation
+            coordinates: time ygrid xgrid
+            missing_value: -1
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            flag_values: 251
+             flag_values: 252
+             flag_values: 253
+             flag_values: 254
+             flag_values: 255
+            flag_meanings: pole_hole lakes coastal land_mask missing_data
+            valid_range: 0
+             valid_range: 100
+        unsigned byte temporal_interpolation_flag[x,y,tdim]   (Chunking: [304,448,1])  (Compression: level 4)
+            _FillValue: 0
+            _Unsigned: true
+            long_name: Passive Microwave Daily Northern Hemisphere Sea Ice Concentration temporal interpolation flags
+            standard_name: interpolation_flag
+            coordinates: time ygrid xgrid
+            flag_masks: 1
+             flag_masks: 2
+             flag_masks: 3
+             flag_masks: 4
+             flag_masks: 5
+             flag_masks: 10
+             flag_masks: 11
+             flag_masks: 20
+             flag_masks: 22
+             flag_masks: 30
+             flag_masks: 33
+             flag_masks: 40
+             flag_masks: 44
+             flag_masks: 50
+             flag_masks: 55
+            flag_meanings: 1_day_following 2_days_following 3_days_following 4_days_following 5_days_following 1_day_prior mean_of_prior_and_following_1_day 2_days_prior mean_of_prior_and_following_2_days 3_days_prior mean_of_prior_and_following_3_days 4_days_prior mean_of_prior_and_following_4_days 5_days_prior mean_of_prior_and_following_5_days
+            comment: If flagged, the value has been replaced by the value n-days prior, n-days following, or the mean of n-days prior and following where n is 1, 2, 3, 4, or 5 days.
+            missing_value: 0
+            datum: +ellps=urn:ogc:def:crs:EPSG::4326
+            grid_mapping: projection
+            valid_range: 0
+             valid_range: 55
+        float time[tdim]   (Chunking: [1024])  
+            standard_name: time
+            units: days since 1601-01-01 00:00:00
+            long_name: ANSI date
+            calendar: gregorian
+            axis: T
+        float xgrid[x]   (Contiguous storage)  
+            valid_range: -3850000
+             valid_range: 3750000
+            units: meters
+            long_name: projection_grid_x_centers
+            standard_name: projection_x_coordinate
+            axis: X
+        float ygrid[y]   (Contiguous storage)  
+            valid_range: -5350000
+             valid_range: 5850000
+            units: meters
+            long_name: projection_grid_y_centers
+            standard_name: projection_y_coordinate
+            axis: Y
+
+     3 dimensions:
+        tdim  Size:1   *** is unlimited *** (no dimvar)
+        y  Size:448 (no dimvar)
+        x  Size:304 (no dimvar)
+
+    40 global attributes:
+        Conventions: CF-1.6, ACDD-1.3
+        title: NOAA/NSIDC Climate Data Record of Passive Microwave Sea Ice Concentration Version 4
+        references: Comiso, J. C., and F. Nishio. 2008. Trends in the Sea Ice Cover Using Enhanced and Compatible AMSR-E, SSM/I, and SMMR Data. Journal of Geophysical Research 113, C02S07, doi:10.1029/2007JC0043257. ; Comiso, J. C., D. Cavalieri, C. Parkinson, and P. Gloersen. 1997. Passive Microwave Algorithms for Sea Ice Concentrations: A Comparison of Two Techniques. Remote Sensing of the Environment 60(3):357-84. ; Comiso, J. C. 1984. Characteristics of Winter Sea Ice from Satellite Multispectral Microwave Observations. Journal of Geophysical Research 91(C1):975-94. ; Cavalieri, D. J., P. Gloersen, and W. J. Campbell. 1984. Determination of Sea Ice Parameters with the NIMBUS-7 SMMR. Journal of Geophysical Research 89(D4):5355-5369. ; Cavalieri, D. J., C. l. Parkinson, P. Gloersen, J. C. Comiso, and H. J. Zwally. 1999. Deriving Long-term Time Series of Sea Ice Cover from Satellite Passive-Microwave Multisensor Data Sets. Journal of Geophysical Research 104(7): 15,803-15,814 ; Comiso, J.C., R.A. Gersten, L.V. Stock, J. Turner, G.J. Perez, and K. Cho. 2017. Positive Trend in the Antarctic Sea Ice Cover and Associated Changes in Surface Temperature. J. Climate, 30, 2251–2267, https://doi.org/10.1175/JCLI-D-16-0408.1
+        comment: none
+        program: NOAA Climate Data Record Program
+        cdr_variable: cdr_seaice_conc
+        software_version_id: git@bitbucket.org:nsidc/seaice_cdr.git@8f4b56efc0583a583e96e12cc1229bbd3b9a5c02
+        metadata_Link: https://nsidc.org/data/g02202/versions/4/
+        product_version: v04r00
+        spatial_resolution: 25km
+        standard_name_vocabulary: CF Standard Name Table (v16, 11 October 2010)
+        id: https://doi.org/10.7265/sr8p-kc62
+        naming_authority: org.doi.dx
+        license: No constraints on data access or use
+        summary: This data set provides a passive microwave sea ice concentration climate data record (CDR) based on gridded brightness temperatures (TBs) from the Defense Meteorological Satellite Program (DMSP) series of passive microwave radiometers: the Nimbus-7 Scanning Multichannel Microwave Radiometer (SMMR), the Special Sensor Microwave Imager (SSM/I) and the Special Sensor Microwave Imager/Sounder (SSMIS). The sea ice concentration CDR is an estimate of sea ice concentration that is produced by combining concentration estimates from two algorithms developed at the NASA Goddard Space Flight Center (GSFC): the NASA Team algorithm and the Bootstrap algorithm. The individual algorithms are used to process and combine brightness temperature data at NSIDC. This product is designed to provide a consistent time series of sea ice concentrations (the fraction, or percentage, of ocean area covered by sea ice) from November 1978 to the present which spans the coverage of several passive microwave instruments. The data are gridded on the NSIDC polar stereographic grid with 25 x 25 km grid cells, and are available in NetCDF file format. Each file contains a variable with the CDR concentration values as well as variables that hold the NASA Team and Bootstrap processed concentrations for reference Variables containing standard deviation, quality flags, and projection information are also included. Data are available via FTP.
+        keywords: EARTH SCIENCE > CRYOSPHERE > SEA ICE > SEA ICE CONCENTRATION, Continent > North America > Canada > Hudson Bay, Geographic Region > Arctic, Geographic Region > Polar, Geographic Region > Northern Hemisphere, Ocean > Arctic Ocean, Ocean > Arctic Ocean > Barents Sea, Ocean > Arctic Ocean > Beaufort Sea, Ocean > Arctic Ocean > Chukchi Sea, CONTINENT > NORTH AMERICA > CANADA > HUDSON BAY, Ocean > Atlantic Ocean > North Atlantic Ocean > Davis Straight, OCEAN > ATLANTIC OCEAN > NORTH ATLANTIC OCEAN > GULF OF ST LAWRENCE, Ocean > Atlantic Ocean > North Atlantic Ocean > North Sea, Ocean > Atlantic Ocean > North Atlantic Ocean > Norwegian Sea, OCEAN > ATLANTIC OCEAN > NORTH ATLANTIC OCEAN > SVALBARD AND JAN MAYEN, Ocean > Pacific Ocean, Ocean > Pacific Ocean > North Pacific Ocean > Bering Sea, Ocean > Pacific Ocean > North Pacific Ocean > Sea Of Okhotsk, 
+        keywords_vocabulary: NASA Global Change Master Directory (GCMD) Keywords, Version 7.0.0
+        cdm_data_type: Grid
+        project: NOAA/NSIDC passive microwave sea ice concentration climate data record
+        creator_url: http://nsidc.org/
+        creator_email: nsidc@nsidc.org
+        institution: NSIDC > National Snow and Ice Data Center
+        processing_level: NOAA Level 3
+        geospatial_lat_min: 31.35
+        geospatial_lat_max: 90
+        geospatial_lat_units: degrees_north
+        geospatial_lon_min: -180
+        geospatial_lon_max: 180
+        geospatial_lon_units: degrees_east
+        time_coverage_duration: P1D
+        time_coverage_resolution: P1D
+        contributor_name: Walter N. Meier, Florence Fetterer, Ann Windnagel, J. Scott Stewart, Trey Stafford, Matt Fisher
+        contributor_role: principal investigator, author, author, software developer, software developer, software developer
+        acknowledgment: This project was supported in part by a grant from the NOAA Climate Data Record Program. Production of original NASA Team and Bootstrap algorithm estimates supported by the NASA Polar Distributed Active Archive Center. The sea ice concentration algorithms were developed by Donald J. Cavalieri, Josefino C. Comiso, Claire L. Parkinson, and others at the NASA Goddard Space Flight Center in Greenbelt, MD.
+        source: Generated from NSIDC0001
+        platform: DMSP 5D-2/F11 > Defense Meteorological Satellite Program-F11
+        sensor: SSM/I > Special Sensor Microwave/Imager
+        date_created: 2021-06-21T17:31:31Z
+        time_coverage_start: 1995-09-01T00:00:00Z
+        time_coverage_end: 1995-09-01T23:59:59Z
