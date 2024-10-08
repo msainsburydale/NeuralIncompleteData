@@ -21,4 +21,4 @@ Rscript src/Potts/Train.R $quick
 find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files
 Rscript src/TrainingTime.R --model=Potts             # compute total runtime
 julia --threads=auto --project=. src/Potts/AssessMissing.jl
-Rscript src/spatial/Potts/Results.R
+Rscript src/Potts/Results.R

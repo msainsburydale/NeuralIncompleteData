@@ -15,7 +15,7 @@ if ! [[ $quick_str == "y" ||  $quick_str == "Y" || $quick_str == "n" ||  $quick_
     exit 1
 fi
 
-source sh/simulations_GP.sh      # Section 3.2 
+#source sh/simulations_GP.sh      # Section 3.2 
 source sh/simulations_Potts.sh   # Section 3.3
 source sh/application.sh         # Section 4
 

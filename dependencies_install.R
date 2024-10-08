@@ -1,6 +1,5 @@
 CRANMIRROR <- "https://cran.csiro.au"
 
-## Find the packages used throughout this repo using the package renv
 if (!("devtools" %in% rownames(installed.packages()))) install.packages("devtools", repos = CRANMIRROR)
 
 # ---- Helper functions for this script ----
@@ -39,7 +38,7 @@ install_dependencies <- function(install_exact_versions) {
     if (!("BiocManager" %in% rownames(installed.packages()))) {
       install.packages("BiocManager", repos = CRANMIRROR)
     }
-  BiocManager::install("rhdf5")
+    BiocManager::install("rhdf5")
   }
   
   ## Remove from search list so that the script does not attempt to re-install them
@@ -58,8 +57,7 @@ install_dependencies <- function(install_exact_versions) {
     already_installed_pkgs_different_versions <- names(installed_pkg_versions)[idx]
   }
   
-  ## Now install the new packages: Here, we always install the correct 
-  ## package version (no reason not to)
+  ## Now install the new packages: Here, we always install the correct package version (no reason not to)
   if(length(new_packages)) {
     cat("Package dependencies are being installed automatically using scripts/Dependencies_install.R\n")
     for (pkg in new_packages) {

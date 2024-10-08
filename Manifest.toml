@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.3"
+julia_version = "1.9.2"
 manifest_format = "2.0"
 project_hash = "60c6c7d904526d6c1abfdf48d62beb6dbf88f3b8"
 
@@ -928,12 +928,12 @@ uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
 
 [[deps.NeuralEstimators]]
-deps = ["BSON", "CSV", "ChainRulesCore", "DataFrames", "Distances", "Distributions", "Flux", "Folds", "Functors", "GraphNeuralNetworks", "Graphs", "InvertedIndices", "LinearAlgebra", "NamedArrays", "NearestNeighbors", "Optim", "Random", "RecursiveArrayTools", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase", "Zygote"]
-git-tree-sha1 = "fe5ae6b51e7838c32f8c4f9aca1cd24dc73f9fad"
+deps = ["BSON", "CSV", "DataFrames", "Distances", "Flux", "Folds", "GraphNeuralNetworks", "Graphs", "InvertedIndices", "LinearAlgebra", "NamedArrays", "NearestNeighbors", "Random", "RecursiveArrayTools", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase"]
+git-tree-sha1 = "a4efeeab550e10fc9145348e8f77b0ecf3c2d821"
 repo-rev = "main"
 repo-url = "https://github.com/msainsburydale/NeuralEstimators.jl.git"
 uuid = "38f6df31-6b4a-4144-b2af-7ace2da57606"
-version = "0.2.1"
+version = "0.1.0"
 
     [deps.NeuralEstimators.extensions]
     NeuralEstimatorsCUDAExt = "CUDA"

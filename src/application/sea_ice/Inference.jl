@@ -4,8 +4,7 @@ using DataFrames
 using RData
 using HDF5
 
-# Load the neural-network architecture
-include(joinpath(pwd(), "src", "application", "sea_ice", "Architecture.jl"))
+include(joinpath(pwd(), "src", "Architecture.jl"))
 
 # Load the data and coerce from 3D array to vector of 4D arrays
 sea_ice = RData.load(joinpath("data", "sea_ice", "sea_ice_3Darray.rds"))

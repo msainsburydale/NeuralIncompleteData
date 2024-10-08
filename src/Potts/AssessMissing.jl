@@ -38,7 +38,7 @@ neuralem = EM(simulatepottsquick, neuralMAP, θ₀)
 
 # ---- Load the neural MAP estimators using the masking approach ----
 
-maskedestimator = architecture(p, input_channels = 2)
+maskedestimator = architecture(p, 2)
 loadpath  = joinpath(pwd(), relative_loadpath, "runs_masking", "ensemble.bson")
 @load loadpath model_state
 Flux.loadmodel!(maskedestimator, model_state)
@@ -106,14 +106,14 @@ function assessmissing(Z, θ, missingness::String, set::String)
 		savedata(Z, K, J, missingness) 
 	end
 	
-	parameter_names = "β"
+	parameter_names = ["β"]
 
   println("  Running the masked neural Bayes estimator...")
 	assessment = assess(
 		maskedestimator, θ, encodedata.(Z);
 		estimator_name = "masking",
 		parameter_names = parameter_names, 
-		use_gpu = false
+		use_gpu = true
 	)
 
    println("  Running the neural EM algorithm...")
@@ -121,7 +121,7 @@ function assessmissing(Z, θ, missingness::String, set::String)
 		neuralemclosure, θ, Z;
 		estimator_name = "neuralEM",
 		parameter_names = parameter_names, 
-		use_gpu = false
+		use_gpu = true
 	))
 	
 	CSV.write(joinpath(relative_savepath, "estimates_$(missingness)_$(set).csv", assessment.df)) 
@@ -130,7 +130,7 @@ function assessmissing(Z, θ, missingness::String, set::String)
 	assessment
 end
 
-for missingness in ["MB", "MCAR"]
+for missingness in ["MCAR", "MB"]
     println("\nAssessing the estimators with $missingness data...")
     assessmissing(Z_test, θ_test, missingness, "test") 
     assessmissing(Z_scenarios, θ_scenarios, missingness, "scenarios") 

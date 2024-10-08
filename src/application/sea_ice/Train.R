@@ -7,7 +7,7 @@ library("JuliaConnectoR")
 # NB first must set working directory to top-level of repo
 Sys.setenv("JULIACONNECTOR_JULIAOPTS" = "--project=.") 
 juliaEval('using NeuralEstimators, Flux, CUDA')
-juliaEval('include(joinpath(pwd(), "src", "application", "sea_ice", "Architecture.jl"))')
+juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
 
 int_path <- file.path("intermediates", "application", "sea_ice")
 img_path <- file.path("img", "application", "sea_ice")

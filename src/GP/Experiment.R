@@ -195,7 +195,7 @@ EM <- function(Z1,                   # data (a matrix containing NAs)
                tolerance = 0.01,    # convergence tolerance
                nconsecutive = 1,    # number of consecutive iterations for which the convergence criterion must be met
                nsims = 1,           # Monte Carlo sample size
-               verbose = TRUE,      # print current estimate to console if TRUE
+               verbose = FALSE,      # print current estimate to console if TRUE
                return_iterates = FALSE  # return all iterates if TRUE
 ) {
   
@@ -425,17 +425,19 @@ Z1_MNAR <- lapply(Z_test, remove_quarter_circle)
 UW_MCAR <- encodedata(Z1_MCAR)
 UW_MNAR <- encodedata(Z1_MNAR)
 
-## Initial estimates and number of conditional simulations in each iteration 
-## of the neural EM algorithm
-H <- 30 
+## Initial estimates and number of conditional simulations in neural EM algorithm
 theta_0 <- c(0.2, 0.5)
+H <- 30 
+
 
 ## Estimation over the test set
 set.seed(1)
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
+cat("Running the neural EM algorithm...")
 EM_MCAR <- EM_multiple(Z1_MCAR, theta_0 = theta_0, estimator = neuralMAP)
 EM_MNAR <- EM_multiple(Z1_MNAR, theta_0 = theta_0, estimator = neuralMAP)
+cat("Computing the MAP estimate...")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
 saveRDS(masked_MCAR, file = file.path(int_path, "Estimates", "Test", "masked_MCAR.rds"))
@@ -526,8 +528,10 @@ savedata(Z1_MNAR, theta, "MNAR")
 
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
+cat("Running the neural EM algorithm...")
 EM_MCAR <- EM_multiple(Z1_MCAR, theta_0 = theta_0, estimator = neuralMAP)
 EM_MNAR <- EM_multiple(Z1_MNAR, theta_0 = theta_0, estimator = neuralMAP)
+cat("Computing the MAP estimate...")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
 saveRDS(masked_MCAR, file = file.path(int_path, "Estimates", "Scenarios", "masked_MCAR.rds"))
