@@ -455,14 +455,6 @@ theta_val   <- prior(K/10)
 Z_train <- apply(theta_train, 2, function(theta) simulate_variable_grid(as.matrix(theta))[[1]]) 
 Z_val <- apply(theta_val, 2, function(theta) simulate_variable_grid(as.matrix(theta))[[1]]) 
 
-#TODO NeuralEstimators doesn't allow this, because of the way that the arrays are stacked! In the optimised method, I need to check that the arrays are all of the same size. The following code simply overwrites the "optimised" array data method with the general fallback:
-juliaEval('
-import NeuralEstimators: summarystatistics
-function summarystatistics(d::DeepSet, Z::V) where {V <: AbstractVector{A}} where {A <: AbstractArray{T, N}} where {T, N}
-  	summarystatistics.(Ref(d), Z)
-end
-')
-
 ResNet <- train(
         ResNet,
         theta_train = theta_train,

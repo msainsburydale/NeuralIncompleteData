@@ -1,4 +1,4 @@
-model <- file.path("spatial", "Potts")
+model <- file.path("Potts")
 
 source(file.path("src", "Plotting.R"))
 
@@ -18,10 +18,12 @@ missingness <- c("MCAR", "MB")
 
 estimator_labels <- c(
   "neuralEM" = "Neural EM",
-  "neuralEncoding" = "Masked NBE"
+  "masking" = "Masked NBE"
 )
 
-# ---- Missing data: entire parameter space ----
+critical_value <- log(1 + sqrt(2))
+
+# ---- RMSE ----
 
 rmse <- data.frame()
 for (set in missingness) {
@@ -35,38 +37,11 @@ for (set in missingness) {
     summarise(RMSE = sqrt(mean(loss))) 
   rmse_tmp$missingness <- set
   rmse <- rbind(rmse, rmse_tmp)
-
-  plt <- plotestimates(df[sample(nrow(df)), ], estimator_labels = estimator_labels, parameter_labels = parameter_labels) + scale_estimator_aesthetic(df)
-  ggsv(file = paste0("global", set), plot = plt, width = 6.5, height = 3.8, path = img_path)
 }
-
-
-plots <- lapply(missingness, function(set) {
-  
-  df  <- file.path(estimates_path, paste0("estimates_", set, "_test.csv")) %>% read.csv
-  plotestimates(df[sample(nrow(df)), ], estimator_labels = estimator_labels, parameter_labels = parameter_labels) + 
-    scale_estimator_aesthetic(df) + 
-    labs(title = set, x = expression(beta), y = expression(hat(beta))) +
-    theme(plot.title = element_text(hjust = 0.5)) + 
-    theme(
-      strip.background = element_blank(),
-      strip.text.x = element_blank() 
-      #axis.title.y = element_text(angle = 0, vjust = 0.5)
-    ) 
-    
-})
-
-plots[[1]] <- plots[[1]] + theme(legend.position = "none") 
-plots[[2]] <- plots[[2]] + theme(axis.title.y = element_blank()) 
-
-plt <- egg::ggarrange(plots = plots, nrow = 1)
-ggsv(file = "global", plot = plt, width = 8.5, height = 3.8, path = img_path)
-
-## Process the results for the RMSE
 rmse <- pivot_wider(rmse, id_cols = "missingness", names_from = "estimator", values_from = c("RMSE"))
 write.csv(rmse, row.names = F, file = file.path(img_path, "rmse.csv"))
 
-# ---- Missing data: sampling distributions ----
+# ---- Sampling distributions ----
 
 loadestimates <- function(type) {
   df <- file.path(estimates_path, paste0("estimates_", type, "_scenarios.csv")) %>% read.csv
@@ -84,7 +59,7 @@ df <- loadestimates(missingness[1]) %>% rbind(loadestimates(missingness[2]))
 zdf <- loaddata(missingness[1]) %>% rbind(loaddata(missingness[2]))
 p <- sum(names(parameter_labels) %in% df$parameter)
 
-N <- 64 # TODO not ideal that this is hard coded; should probably save N, or x and y, in Julia
+N <- zdf %>% filter(k==1 & j == 1 & missingness == "MCAR") %>% nrow %>% sqrt # NB assumes square grid
 zdf$x <- rep(1:N, each = N) 
 zdf$y <- N:1
 
@@ -92,7 +67,6 @@ figures <- lapply(unique(df$k), function(kk) {
   
   df  <- df  %>% filter(k == kk)
   zdf <- zdf %>% filter(k == kk)
-  
   l <- length(missingness) # number of missingness patterns
   
   # ---- Data plots ----
@@ -144,13 +118,11 @@ figures <- lapply(unique(df$k), function(kk) {
   if (p > 1) stop("Need to change the code that keeps the axes fixed between panels") 
   est_lims <- range(df$estimate)
   
-  
   p <- length(unique(df$parameter))
   box_split <- lapply(1:p, function(i) {
     lapply(1:length(box), function(j) box[[j]][[i]])
   })
   
-
   # Modify the axes 
   for (i in 1:p) {
     box_split[[i]][[l]] <- box_split[[i]][[l]] + labs(y = box_split[[i]][[1]]$labels$x) 
@@ -169,9 +141,7 @@ figures <- lapply(unique(df$k), function(kk) {
   box <- do.call(c, box_split)
   suppressMessages({
     box <- lapply(box, function(gg) gg + scale_estimator_aesthetic(df))
-  })
-  box_legend <- get_legend(box[[1]])
-  suppressMessages({
+    box_legend <- get_legend(box[[1]])
     box <- lapply(box, function(gg) {
       gg$facet$params$nrow <- 2
       gg$facet$params$strip.position <- "bottom"
@@ -184,6 +154,7 @@ figures <- lapply(unique(df$k), function(kk) {
   
   # ---- Combine with global scatter plot ----
   
+  suppressMessages({
   global_plots <- lapply(missingness, function(set) {
     
     df  <- file.path(estimates_path, paste0("estimates_", set, "_test.csv")) %>% read.csv
@@ -196,15 +167,16 @@ figures <- lapply(unique(df$k), function(kk) {
         strip.background = element_blank(),
         strip.text.x = element_blank(),
         legend.position = "none"
-      ) 
+      ) + 
+    geom_vline(xintercept = critical_value, linetype = "dashed")
     
     gg$layers[[1]]$aes_params$size <- 0.4
     
     gg
-    
   })
   global_plots[[1]] <- global_plots[[1]] + theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks = element_blank())
   global_plots[[1]] <- global_plots[[1]] + theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks = element_blank())
+  })
   
   plotlist <- c(data, box, global_plots, legends)
   nrow <- length(missingness)

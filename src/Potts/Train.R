@@ -52,7 +52,7 @@ saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
 
 # Generate a data set to assess the sampling distributions of the estimators
 theta_scenarios <- seq(0.4, 1.1, by = 0.1)
-J <- 100 # number of data sets for each beta 
+J <- ifelse(quick, 3, 100) # number of data sets for each beta 
 Z_scenarios <- foreach(1:J, .multicombine = TRUE,
                        .packages=c('bayesImageS')) %dopar% {
                          lapply(theta_scenarios, function(be) {
@@ -86,9 +86,9 @@ theta_scenarios <- t(theta_scenarios)
 
 ## Partition the data into training, validation, and test sets
 K <- length(Z)
-K1 <- ceiling(0.8*K)  # size of the training set 
-K3 <- 1000            # size of the test set 
-K2 <- K - K1 - K3     # size of the validation set 
+K1 <- ceiling(0.8*K)           # size of the training set 
+K3 <- ifelse(quick, 15, 1000)  # size of the test set 
+K2 <- K - K1 - K3              # size of the validation set 
 if (K1 + K2 + K3 != length(Z)) {
   stop("The sum of the sizes of the training, validation, and test sets does not equal the total number of data sets.")
 }

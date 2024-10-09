@@ -124,8 +124,8 @@ function assessmissing(Z, θ, missingness::String, set::String)
 		use_gpu = true
 	))
 	
-	CSV.write(joinpath(relative_savepath, "estimates_$(missingness)_$(set).csv", assessment.df)) 
-  CSV.write(joinpath(relative_savepath, "runtime_$(missingness)_$(set).csv", assessment.runtime)) 
+	CSV.write(joinpath(relative_savepath, "estimates_$(missingness)_$(set).csv"), assessment.df)
+  CSV.write(joinpath(relative_savepath, "runtime_$(missingness)_$(set).csv"), assessment.runtime)
 
 	assessment
 end
