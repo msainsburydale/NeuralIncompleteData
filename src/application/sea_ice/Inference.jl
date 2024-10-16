@@ -1,7 +1,10 @@
 using NeuralEstimators
+using BSON: @load
 using CSV
 using DataFrames
+using Folds
 using RData
+using Statistics: mean
 using HDF5
 
 include(joinpath(pwd(), "src", "Architecture.jl"))
@@ -21,8 +24,9 @@ sea_ice = broadcast.(IntMissing, sea_ice)
 p = 1
 neuralMAP = architecture(p)
 path = joinpath("intermediates", "application", "sea_ice")
-loadpath  = joinpath(pwd(), path, "NBE")
-Flux.loadparams!(neuralMAP, loadbestweights(loadpath))
+loadpath  = joinpath(pwd(), path, "NBE", "ensemble.bson")
+@load loadpath model_state
+Flux.loadmodel!(neuralMAP, model_state)
 
 # Construct the neural EM object
 θ₀ = reshape([0.9], 1) # TODO should be able to give theta as a Number or a Vector, add a convenience constructor
@@ -64,7 +68,12 @@ z = copy(sea_ice[idx][:, :, 1, 1])
 β = estimates[idx]
 z_sims = simulatepotts(z, β; nsims = B, thin = 10, burn = 500)
 z_sims = stackarrays(z_sims; merge = false)
-h5write(joinpath(path, "sims1995.h5"), "dataset", z_sims)
+# Remove "sims1995.h5" if it already exists, then save the new one
+file_path = joinpath(path, "sims1995.h5")
+if isfile(file_path)
+    rm(file_path)
+end
+h5write(file_path, "dataset", z_sims)
 
 # Save results 
 CSV.write(joinpath(path, "estimates.csv"), DataFrame(beta = vec(estimates), sie = mean.(eachrow(sie))))

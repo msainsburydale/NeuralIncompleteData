@@ -1,11 +1,12 @@
 source(file.path("src", "Plotting.R"))
+suppressMessages({
 library("latex2exp")
 library("reshape2")
-library("dplyr")
-
 # install.packages("BiocManager")
 # BiocManager::install("rhdf5")
 library("rhdf5")
+options(dplyr.summarise.inform = FALSE) 
+})
 
 if(!interactive()) pdf(NULL)
 oldw <- getOption("warn")
@@ -90,11 +91,11 @@ gg2 <- ggplot(probs, aes(Var1, Var2, fill = value)) +
                       name = "Predictive\nProbability\nof Ice") + 
   theme(axis.title = element_blank()) 
 
+suppressMessages({
 window <- gg2 +
   scale_y_continuous(position = "right") +
   coord_cartesian(xlim = c(xmin, xmax), ylim = c(ymin, ymax)) + 
-  theme(plot.margin = unit(c(10, 10, 100, 10), "points")) # padding around window
-
+  theme(plot.margin = unit(c(10, 10, 100, 10), "points")) # padding around window  
 
 gg <- ggarrange(
   gg1 + 
@@ -103,6 +104,7 @@ gg <- ggarrange(
     coord_fixed(),
   window + theme(legend.position = "top") + coord_fixed(xlim = c(xmin, xmax), ylim = c(ymin, ymax))
 )
+})
 
 figure <- ggarrange(fig, gg, nrow = 1)
 

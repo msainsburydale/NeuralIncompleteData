@@ -2,6 +2,7 @@
 library("bayesImageS")
 library("doParallel")
 library("dplyr")
+library("ggplot2")
 library("NeuralEstimators")
 library("JuliaConnectoR")
 # NB first must set working directory to top-level of repo
