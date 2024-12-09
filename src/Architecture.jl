@@ -1,5 +1,4 @@
-using Flux
-using NeuralEstimators
+using Flux, NeuralEstimators
 
 function architecture(ξ; input_channels = 1)
 
@@ -40,24 +39,13 @@ function architecture(p, input_channels = 1; outputactivation = softplus)
   return Ensemble(estimators)
 end
 
-# Compute the dimensions at each layer:
-#p = 1
-#nn = Chain(
-#			Conv((3, 3), 1=>16, pad=1, bias=false), 
-#			BatchNorm(16, relu),   
-#			ResidualBlock((3, 3), 16 => 16),                               
-#			ResidualBlock((3, 3), 16 => 32, stride=2),                     
-#			ResidualBlock((3, 3), 32 => 64, stride=2),                     
-#			ResidualBlock((3, 3), 64 => 128, stride=2),                    
-#			GlobalMeanPool(),                                              
-#			Flux.flatten,
-#			Dense(128, 128),                                         
-#			Dense(128, 512, relu),
-#			Dense(512, p)
-#		)
-#z  = rand32(32, 17, 1, 1)
-#[size(nn[1:i](z)) for i in eachindex(nn)]
-#[nparams(nn[i]) for i in eachindex(nn)]
 
+# Compute the output dimensions and number of parameters at each layer:
+arch = architecture(1)[1].arch
+nn = Chain(arch.ψ..., arch.ϕ...)
+z  = rand32(64, 64, 1, 1)
+[size(nn[1:i](z)) for i in eachindex(nn)]
+[nparams(nn[i]) for i in eachindex(nn)]
+"Total number of neural-network parameters: $(nparams(nn))"
 
 

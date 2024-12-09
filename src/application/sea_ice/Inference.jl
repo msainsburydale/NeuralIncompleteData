@@ -1,3 +1,14 @@
+println("Starting estimation stage for sea-ice application...")
+
+using ArgParse
+arg_table = ArgParseSettings()
+@add_arg_table arg_table begin
+	"--quick"
+		help = "Flag controlling whether or not a computationally inexpensive run should be done."
+		action = :store_true
+end
+quick         = parsed_args["quick"]
+
 using NeuralEstimators
 using BSON: @load
 using CSV
@@ -27,27 +38,47 @@ path = joinpath("intermediates", "application", "sea_ice")
 loadpath  = joinpath(pwd(), path, "NBE", "ensemble.bson")
 @load loadpath model_state
 Flux.loadmodel!(neuralMAP, model_state)
+neuralMAP = neuralMAP[1] # use a single NBE rather than an ensemble 
 
 # Construct the neural EM object
-θ₀ = reshape([0.9], 1) # TODO should be able to give theta as a Number or a Vector, add a convenience constructor
-simulatepottsquick(args...; kwargs...) = simulatepotts(args...; num_iterations = 100, kwargs...) #TODO more iterations?
-neuralem = EM(simulatepottsquick, neuralMAP, θ₀)
+θ₀ = [0.9] 
+simulatepottsquick(args...; kwargs...) = simulatepotts(args...; kwargs..., num_iterations = 100)
+neuralem = EM(simulatepotts, neuralMAP, θ₀)
 @elapsed neuralem(sea_ice[1])
 @elapsed neuralem(sea_ice[1:2])
 
-# Parameter point estimates 
+# Point estimates 
+println("Obtaining point estimates...")
 tm = @elapsed estimates = neuralem(sea_ice)
+tm /= length(sea_ice) # average time for a single estimate  
 
 # Bootstrap uncertainty quantification
-#TODO Is this right? Shouldn't we also use missing data? I suppose it's not a big deal if the missingness proportion is relatively small
-B = 400 # number of bootstrap samples 
+println("Performing bootstrap-based uncertainty quantification...")
+B = quick ? 20 : 400 # number of bootstrap samples 
 Z = Folds.map(eachcol(estimates)) do β
-  z = simulatepotts(w, h, 2, β; nsims = B, thin = 5, burn = 2000)
-  z = broadcast(x -> x .-= 1, z) # decrease state labels by 1 (for consistency with expected input)
+  num_states = 2 # two states (ice, no ice)
+  z = simulatepotts(w, h, num_states, β; nsims = B, thin = 10, burn = 1000) 
+  z = broadcast(x -> x .-= 1, z) # decrease state labels by 1 (for consistency with format of simulated data used during training, which starts the labels at 0)
   z = reshape.(z, w, h, 1, 1)    # reshape to 4-dimensional array, as required by CNN architecture
   z
 end
-bs_estimates = estimateinbatches.(Ref(neuralMAP), Z)
+# Ignoring missingness, which may be ok if missingness proportion is small
+# bs_estimates_completedata = estimateinbatches.(Ref(neuralMAP), Z)
+# bs_estimates_completedata = reduce(vcat, bs_estimates_completedata)
+
+# Account for missingness in bootstrap uncertainty quantification
+Z1 = deepcopy(Z)
+# Promote eltype of Z1 from Int64 to Union{T, Missing} to allow missing values 
+T = eltype(Z1[1][1])
+Z1 = broadcast.(convert, Ref(Array{Union{T, Missing}}), Z1)
+for i in 1:length(Z1)
+    for j in 1:length(Z1[i])
+        Z1[i][j] = map((z, s) -> ismissing(s) ? missing : z, Z1[i][j], sea_ice[i])
+    end
+end
+# We have many estimates to obtain, so initialise the algorithm with the 
+# observed data estimates and then do a short run of the EM algorithm
+bs_estimates = neuralem.(Z1, estimates, niterations = 2) 
 bs_estimates = reduce(vcat, bs_estimates)
 
 # Conditional simulation 

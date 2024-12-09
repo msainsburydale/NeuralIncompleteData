@@ -80,7 +80,8 @@ field_plot <- function(field, regular = TRUE, variable = "Z") {
 
 ggsv <- function(filename, plot, ...) {
   suppressWarnings({
-    for (device in c("pdf", "png")) {
+    # for (device in c("pdf", "png")) {
+    for (device in c("pdf")) {
       ggsave(plot, file = paste0(filename, ".", device), device = device, ...)
     }
   })

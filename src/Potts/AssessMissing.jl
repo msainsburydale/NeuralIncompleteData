@@ -31,10 +31,9 @@ loadpath  = joinpath(pwd(), relative_loadpath, "runs_EM", "ensemble.bson")
 @load loadpath model_state
 Flux.loadmodel!(neuralMAP, model_state)
 
-θ₀ = reshape([0.7], 1) # TODO should be able to give theta as a Number or a Vector, add a convenience constructor
-simulatepottsquick(args...; kwargs...) = simulatepotts(args...; num_iterations = 500, kwargs...)
+θ₀ = [0.7]
+simulatepottsquick(args...; kwargs...) = simulatepotts(args...; num_iterations = 300, kwargs...)
 neuralem = EM(simulatepottsquick, neuralMAP, θ₀)
-
 
 # ---- Load the neural MAP estimators using the masking approach ----
 
@@ -138,18 +137,18 @@ end
 
 # ---- Accurately assess the run-time for a single data set ----
 
-#println("\nAssessing the run-times for a single data set...")
+println("\nAssessing the run-times for a single data set...")
 
 # Missing data
-#Z1 = removedata.(Z_test, 0.1)
-#df = DataFrame(estimator = [], time = [])
+Z1 = removedata.(Z_test, 0.1)
+df = DataFrame(estimator = [], time = [])
 
 # Masked neural Bayes estimator
-#t = @belapsed gpu(maskedestimator)(gpu(encodedata(Z1[1])))
-#append!(df, DataFrame(estimator = "masking", time = t))
+t = @belapsed gpu(maskedestimator)(gpu(encodedata(Z1[1])))
+append!(df, DataFrame(estimator = "masking", time = t))
 
 # Neural EM
-#t = @belapsed neuralem(Z1[1])
-#append!(df, DataFrame(estimator = "neuralEM", time = t))
+t = @belapsed neuralem(Z1[1])
+append!(df, DataFrame(estimator = "neuralEM", time = t))
 
-#CSV.write(joinpath(relative_savepath, "runtime_singledataset.csv"), df)
+CSV.write(joinpath(relative_savepath, "time_single_estimate.csv"), df)

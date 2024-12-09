@@ -252,20 +252,12 @@ loadbestmodel <- function(estimator, path) {
 }
 
 # load the estimators (allows starting from here without retraining)
-# NB this code is split because I saved the first three architectures in the old format
-all_estimators <- lapply(1:3, function(i) {
+all_estimators <- lapply(seq_along(architectures), function(i) {
   lapply(1:J, function(j) {
     estimator <- architectures[[i]]()
-    #TODO might have to update this because of new saving approach... let's see
-    loadbestweights(estimator, file.path(savepath, paste0("architecture", i), paste0("estimator", j)))
+    loadbestmodel(estimator, file.path(savepath, paste0("architecture", i), paste0("estimator", j)))
   })
 })
-all_estimators <- c(all_estimators, list(lapply(1:J, function(j) {
-    i <- 4  
-    estimator <- architectures[[i]]()
-    loadbestmodel(estimator, file.path(savepath, paste0("architecture", i), paste0("estimator", j)))
-  }))
-)
 ```
 
 ```{r}

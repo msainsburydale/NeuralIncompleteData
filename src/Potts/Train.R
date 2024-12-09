@@ -138,7 +138,7 @@ estimator <- train(
 # ---- Construct masked neural Bayes estimator ----
 
 ## Construct data sets for masking approach
-removedata <- function(Z, proportion = runif(1, 0.2, 0.8)) {
+removedata <- function(Z, proportion = runif(1, 0.1, 0.9)) {
   
   # Ensure proportion is between 0 and 1
   if (proportion < 0 || proportion > 1) stop("Proportion must be between 0 and 1")

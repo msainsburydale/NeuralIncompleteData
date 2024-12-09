@@ -1,14 +1,19 @@
-## R and Julia packages for simulation and neural Bayes estimation
+# Boolean indicating whether (TRUE) or not (FALSE) to quickly establish that the code is working properly
+quick <- identical(commandArgs(trailingOnly=TRUE)[1], "--quick")
+
+# ---- Simulate data ----
+
+cat("Simulating training data...")
+
+## R packages for data simulation
+source(file.path("src", "Plotting.R"))
+
+suppressMessages({
 library("bayesImageS")
 library("doParallel")
 library("dplyr")
 library("ggplot2")
-library("NeuralEstimators")
-library("JuliaConnectoR")
-# NB first must set working directory to top-level of repo
-Sys.setenv("JULIACONNECTOR_JULIAOPTS" = "--project=.") 
-juliaEval('using NeuralEstimators, Flux, CUDA')
-juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
+})
 
 int_path <- file.path("intermediates", "application", "sea_ice")
 img_path <- file.path("img", "application", "sea_ice")
@@ -19,7 +24,7 @@ q <- 2      # number of labels for the Potts model (Ising has q=2)
 p <- 1L     # number of parameters in the model
 grid_dim <- c(199, 219)     
 d <- prod(grid_dim)     # size of the image
-K <- 1e5                # number of independent datasets
+K <- if (quick) 5e3 else 1e5  # number of independent datasets
 burn <- 100             # iterations of Swendsen-Wang to discard as burn-in
 maxC <- detectCores()   # maximum number of parallel CPU cores to use
 
@@ -32,7 +37,9 @@ neigh <- getNeighbors(mask, c(2,2,0,0))
 block <- getBlocks(mask, 2)
 
 # execute in parallel
-nc <- min(detectCores(), maxC)
+nc <- min(detectCores(), maxC/2)
+# showConnections(all = TRUE)
+# closeAllConnections()
 cl <- makeCluster(nc)
 clusterSetRNGStream(cl)
 registerDoParallel(cl)
@@ -50,7 +57,7 @@ saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
 stopCluster(cl)
 
 
-# ---- Construct training, validation, and test sets ----
+# ---- Partition simulated data into training, validation, and test sets ----
 
 ## Coerce data and parameters to required format 
 Z <- lapply(Z, function(z) {
@@ -62,7 +69,7 @@ theta <- t(beta)
 ## Partition the data into training, validation, and test sets
 K <- length(Z)
 K1 <- ceiling(0.8*K)  # size of the training set 
-K3 <- 1000            # size of the test set 
+K3 <- if (quick) 50 else 1000 # size of the test set 
 K2 <- K - K1 - K3     # size of the validation set 
 if (K1 + K2 + K3 != length(Z)) {
   stop("The sum of the sizes of the training, validation, and test sets does not equal the total number of data sets.")
@@ -81,6 +88,14 @@ theta_val   <- theta[, idx_val, drop = F]
 theta_test  <- theta[, idx_test, drop = F]
 
 # ---- Construct neural Bayes estimator for use in neural EM algorithm ----
+
+## R and Julia packages for simulation and neural Bayes estimation
+library("NeuralEstimators")
+library("JuliaConnectoR")
+# NB first must set working directory to top-level of repo
+Sys.setenv("JULIACONNECTOR_JULIAOPTS" = "--project=.") 
+juliaEval('using NeuralEstimators, Flux, CUDA')
+juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
 
 ## Initialise the estimator
 estimator <- juliaLet('estimator = architecture(p)', p = p)
@@ -102,7 +117,4 @@ gg <- ggplot(estimates) +
   theme_bw() +
   labs(x = expression(beta), y = expression(hat(beta))) + 
   coord_fixed()
-ggsave(file.path(img_path, "NBE_assessment.pdf"), gg, dev = "pdf", width = 3.5, height = 3.5) 
-ggsave(file.path(img_path, "NBE_assessment.png"), gg, dev = "png", width = 3.5, height = 3.5) 
-
-
+ggsv(file.path(img_path, "NBE_assessment"), gg, width = 3.5, height = 3.5)  

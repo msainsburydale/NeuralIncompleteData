@@ -1,13 +1,11 @@
-model <- file.path("Potts")
-
 source(file.path("src", "Plotting.R"))
 
 if(!interactive()) pdf(NULL)
 oldw <- getOption("warn")
 options(warn = -1)
 
-estimates_path <- file.path("intermediates", model, "Estimates")
-img_path       <- file.path("img", model)
+estimates_path <- file.path("intermediates", "Potts", "Estimates")
+img_path       <- file.path("img", "Potts")
 dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
 
 parameter_labels = c(

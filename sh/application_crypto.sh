@@ -17,9 +17,7 @@ else
     exit 1
 fi
 
-
-Rscript src/Potts/Train.R $quick
-find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files
-Rscript src/TrainingTime.R --model=Potts             # compute total runtime
-julia --threads=auto --project=. src/Potts/AssessMissing.jl
-Rscript src/Potts/Results.R
+Rscript src/application/crypto/Preprocessing.R
+julia --threads=auto --project=. src/application/crypto/Train.jl $quick 
+julia --threads=auto --project=. src/application/crypto/Inference.jl 
+Rscript src/application/crypto/Results.R

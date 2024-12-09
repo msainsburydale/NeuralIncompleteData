@@ -18,6 +18,6 @@ else
 fi
 
 Rscript src/application/sea_ice/Preprocessing.R
-Rscript src/application/sea_ice/Train.R $quick # TODO need to implement quick
-julia --threads=auto --project=. src/application/sea_ice/Inference.jl # TODO need to implement quick
+Rscript src/application/sea_ice/Train.R $quick 
+julia --threads=auto --project=. src/application/sea_ice/Inference.jl $quick 
 Rscript src/application/sea_ice/Results.R

@@ -1,4 +1,4 @@
-# Source code for "Neural Parameter Estimation with Incomplete Data" (Sainsbury-Dale, Zammit-Mangion, Cressie, Huser, 2024+)
+# Source code for "Neural Parameter Estimation with Incomplete Data"
 
 ![Figure 2: The inference stage of the neural EM algorithm.](/img/schematic.png?raw=true)
 
@@ -17,7 +17,7 @@ First, download this repository and navigate to its top-level directory within t
 Before installing the software dependencies, users may wish to set up a [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/linux.html) environment, so that the dependencies of this repository do not affect the user's current installation. To create a conda environment, run the following command in terminal:
 
 ```
-conda create -n NeuralIncompleteData -c conda-forge julia=1.9.3 r-base nlopt
+conda create -n NeuralIncompleteData -c conda-forge julia=1.10.1 r-base nlopt
 ```
 
 Then activate the conda environment with:
@@ -28,7 +28,7 @@ conda activate NeuralIncompleteData
 
 The above conda environment installs Julia and R automatically. If you do not wish to use a conda environment, you will need to install Julia and R manually if they are not already on your system:  
 
-- Install [Julia 1.9.3](https://julialang.org/downloads/).
+- Install [Julia 1.10.1](https://julialang.org/downloads/).
 - Install [R >= 4.0.0](https://www.r-project.org/).
 
 Once Julia and R are setup, install the Julia and R package dependencies (given in `Project.toml` and `Manifest.toml`, and `dependencies.txt`, respectively) by running the following commands from the top-level of the repository:
