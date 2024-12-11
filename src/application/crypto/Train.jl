@@ -25,19 +25,13 @@ epochs_per_Z_refresh = 3 # how often to refresh the training data
 
 if quick K_train = K_train ÷ 100 end
 
-# ---- Train the neural MAP estimator for use in the EM algorithm ----
-
 @info "Training the neural MAP estimator for use in the neural EM algorithm..."
 θ̂ = architecture(ξ; input_channels = 1)
 θ̂ = train(θ̂, Parameters, simulate; m = m, savepath = savepath * "EM", ξ = ξ, K = K_train, epochs = epochs, epochs_per_θ_refresh = epochs_per_θ_refresh, epochs_per_Z_refresh = epochs_per_Z_refresh, use_gpu = use_gpu, batchsize = batchsize)
-# θ̂ = train(θ̂, Parameters, simulate; m = m, savepath = savepath * "EM", ξ = ξ, K = K_train, epochs = epochs, epochs_per_θ_refresh = epochs_per_θ_refresh, epochs_per_Z_refresh = epochs_per_Z_refresh, loss = (ŷ, y) -> tanhloss(ŷ, y, 0.1f0), use_gpu = use_gpu, batchsize = batchsize)
-
-# ---- Train the one-hot-encoding-based neural estimator  ----
 
 @info "Training the masked neural Bayes estimator..."
-
-# Variable missingness proportion p = (p₁, p₂, p₃) subject to ∑pᵢ = 1
 function variableproportions(d::Integer, K::Integer; sum_to_one::Bool = false)
+  # Variable missingness proportion p = (p₁, p₂, p₃) subject to ∑pᵢ = 1
 	map(1:K) do _
 		proportions = rand(d)
 		if sum_to_one
@@ -46,9 +40,7 @@ function variableproportions(d::Integer, K::Integer; sum_to_one::Bool = false)
 		proportions
 	end
 end
-
 augmentdata(Z, x; kwargs...) = encodedata.(removedata.(Z, x; kwargs...))
-
 function simulatemissing(parameters, m)
 	d = size(parameters.chols, 1) # number of elements in the complete-data vector
 	K = size(parameters, 2)       # number of parameter vectors in this set
@@ -56,4 +48,3 @@ function simulatemissing(parameters, m)
 end
 θ̂ = architecture(ξ; input_channels = 2)
 train(θ̂, Parameters, simulatemissing; m = m, savepath = savepath * "encoding", ξ = ξ, K = K_train, epochs = epochs, epochs_per_θ_refresh = epochs_per_θ_refresh, epochs_per_Z_refresh = epochs_per_Z_refresh, use_gpu = use_gpu, batchsize = batchsize)
-#train(θ̂, Parameters, simulatemissing; m = m, savepath = savepath * "encoding", ξ = ξ, K = K_train, epochs = epochs, epochs_per_θ_refresh = epochs_per_θ_refresh, epochs_per_Z_refresh = epochs_per_Z_refresh, loss = (ŷ, y) -> tanhloss(ŷ, y, 0.1f0), use_gpu = use_gpu, batchsize = batchsize)

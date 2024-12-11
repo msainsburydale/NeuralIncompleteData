@@ -10,6 +10,8 @@ library("tidyr")
 library("GGally")
 library("ggpubr")
 library("combinat")
+library("zoo")
+library("crypto2")
   
 # Pre-whiten using time series models
 # See the following vignette for fitting ARMA(1, 1)-GARCH(1, 1) models:
@@ -21,6 +23,9 @@ if(!interactive()) pdf(NULL)
 
 oldw <- getOption("warn")
 options(warn = -1)
+
+img_path  <- "img/application/crypto"
+dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
 
 scatterplot_data <- function(df, lims = NA, origin = FALSE, geom = geom_point, axis_labs = NULL, ...) {
   
@@ -55,13 +60,22 @@ scatterplot_data <- function(df, lims = NA, origin = FALSE, geom = geom_point, a
 }
 
 
-prewhiten <- function(X) {
-
-  ## If there are missing data, replace it by the mean
+prewhiten <- function(X, replace_missing = c("persistence", "mean")) {
+  
+  replace_missing <- match.arg(replace_missing)
+  
+  ## Convert to vector
   X <- as.vector(X)
-  idx <- is.na(X)
-  X[idx] <- mean(X, na.rm = TRUE)
 
+  ## Handle missing data
+  idx <- is.na(X)
+  if (replace_missing == "mean") {
+    X[idx] <- mean(X, na.rm = TRUE)
+  } else if (replace_missing == "persistence") {
+    X[idx] <- zoo::na.locf(X, na.rm = FALSE)  # Fill forward
+    X[idx & is.na(X)] <- zoo::na.locf(X, fromLast = TRUE)  # Fill backward if necessary
+  }
+  
   ## Fit an ARMA(1,1)-GARCH(1,1) model
   armaOrder  <- c(1,1) # ARMA order
   garchOrder <- c(1,1) # GARCH order
@@ -72,37 +86,35 @@ prewhiten <- function(X) {
     distribution.model = "norm"
   )
   fit <- ugarchfit(spec, data = X)
-
+  
   ## Standardised residuals
   Z <- as.numeric(residuals(fit, standardize = TRUE))
-
+  
   ## Re-introduce missingness
   Z[idx] <- NA
-
+  
   return(Z)
 }
 
 
-# ---- Crypto ----
+# ---- Crypto data ----
 
-# Data obtained from: yahoo finance
+df <- crypto2::crypto_list() %>% 
+  filter(name %in% c("Bitcoin", "Ethereum", "Avalanche")) %>% 
+  crypto2::crypto_history()
+write_csv(df, "data/crypto/raw_data.csv")
 
-img_path  <- "img/application/crypto"
-dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
-
-df1 <- read_csv("data/crypto/BTC-USD.csv", show_col_types = F) %>% mutate(Currency = "Bitcoin")
-df2 <- read_csv("data/crypto/ETH-USD.csv", show_col_types = F) %>% mutate(Currency = "Ethereum")
-df3 <- read_csv("data/crypto/AVAX-USD.csv", show_col_types = F) %>% mutate(Currency = "Avalanche")
-df <- rbind(df1, df2, df3)
-# ETH_start_date <- min(df2$Date) # consider data beginning from Ethereum's introduction
+df <- read_csv("data/crypto/raw_data.csv", show_col_types = F)
 df <- df %>%
+  rename(Date = timestamp, Currency = name, Close = close) %>% 
+  mutate(Date = as.Date(Date)) %>% 
   select(Date, Close, Currency) %>%
   rename(value = Close) %>%
-  mutate(value = as.numeric(value), day = weekdays(Date)) #%>%
-  # filter(Date > ETH_start_date)
+  mutate(value = as.numeric(value), day = weekdays(Date)) 
 
-# range(df$Date) # "2014-09-17" "2023-04-02"
-# length(unique(df$Date)) # 1970
+# range(df$Date) # "2013-04-28" "2024-12-10"
+# length(unique(df$Date)) # 4250
+# df %>% group_by(Currency) %>% summarise(min(Date))
 
 # Compute the log returns
 df <- df %>%
@@ -115,6 +127,9 @@ idx <- which(is.na(df$logreturn))
 # table(df$day[idx])
 # length(idx) # 75
 
+# Plotting order 
+df$Currency <- factor(df$Currency, levels = c("Bitcoin", "Ethereum", "Avalanche"))
+
 # Closing prices: time-series
 add_dollar <- function(x, ...) format(paste0("$", x), ...)
 closing_price_labeller <- function(variable, value){
@@ -126,8 +141,10 @@ closing_price_labeller <- function(variable, value){
 p1a <- ggplot(df) +
   geom_line(aes(x = Date, y = value)) +
   facet_wrap(~ Currency, ncol = 1, scales = "free_y", labeller = closing_price_labeller) +
-  scale_y_continuous(labels = add_dollar) +
-  scale_x_date(date_breaks = "1 year", date_labels =  "%b %Y") +
+  # scale_y_continuous(labels = add_dollar) +
+  # scale_y_continuous(labels = function(x) paste0("$", format(x, big.mark = ",", scientific = FALSE))) + 
+  scale_y_continuous(labels = function(x) paste0("$", format(x, scientific = FALSE))) + 
+  scale_x_date(date_breaks = "2 year", date_labels =  "%b %Y") +
   theme_bw() +
   theme(
     strip.text = element_text(face = "bold", hjust = 0),
@@ -145,7 +162,7 @@ returns_labeller <- function(variable,value){
 p1b <- ggplot(df) +
   geom_line(aes(x = Date, y = logreturn)) +
   facet_wrap(~ Currency, ncol = 1, labeller = returns_labeller) +
-  scale_x_date(date_breaks = "1 year", date_labels =  "%b %Y") +
+  scale_x_date(date_breaks = "2 year", date_labels =  "%b %Y") +
   theme_bw() +
   theme(
     strip.text = element_text(face = "bold", hjust = 0),
@@ -180,7 +197,6 @@ plots = scatterplot_data(
   )
 p2a <- ggarrange(plotlist = plots, nrow = 1)
 
-
 df <- df %>% group_by(Currency) %>% mutate(stdresiduals = prewhiten(logreturn))
 
 # Standardised residuals: time series
@@ -193,7 +209,7 @@ residuals_labeller <- function(variable,value){
 p3b <- ggplot(df) +
   geom_line(aes(x = Date, y = stdresiduals)) +
   facet_wrap(~ Currency, ncol = 1, labeller = residuals_labeller) +
-  scale_x_date(date_breaks = "1 year", date_labels =  "%b %Y") +
+  scale_x_date(date_breaks = "2 year", date_labels =  "%b %Y") +
   theme_bw() +
   theme(
     strip.text = element_text(face = "bold", hjust = 0),
@@ -201,7 +217,7 @@ p3b <- ggplot(df) +
     axis.title = element_blank()
   )
 
-(p3 <- ggarrange(p1a, p3b, align = "hv"))
+p3 <- ggarrange(p1a, p3b, align = "hv")
 
 
 # Standardised residuals: pairs plots
@@ -271,6 +287,7 @@ widedf$Date <- NULL
 retain_idx <- apply(widedf, 1, function(x) !all(is.na(x)))
 widedf <- widedf[retain_idx, ]
 
-write.csv(widedf, file = "data/crypto/standardised_crypto_data.csv", row.names = F)
+write.csv(widedf, file = "data/crypto/standardised_data.csv", row.names = F)
 
 options(warn = oldw)
+

@@ -61,8 +61,8 @@ gg1 <- makeplot_pointwise(df_est, df_ci, "lower") + labs(y = TeX("$Pr(U_i < u, U
 gg2 <- makeplot_pointwise(df_est, df_ci, "upper") + labs(y = TeX("$Pr(U_i > u, U_j > u)$")) + scale_x_continuous(breaks = c(0.92, 0.95, 0.98))
 figure <- ggarrange(gg1, gg2, nrow = 2, align = "hv")
 
-ggsv(file = "tail-probabilities-lower_pointwise", plot = gg1, width = 9.5, height = 3.5, path = img_path)
-ggsv(file = "tail-probabilities-upper_pointwise", plot = gg2, width = 9.5, height = 3.5, path = img_path)
+ggsv(file = "tail-probabilities-lower_pointwise", plot = gg1, width = 9.5, height = 3, path = img_path)
+ggsv(file = "tail-probabilities-upper_pointwise", plot = gg2, width = 9.5, height = 3, path = img_path)
 ggsv(file = "tail-probabilities_pointwise", plot = figure, width = 9.5, height = 6.5, path = img_path)
 
 options(warn = oldw)

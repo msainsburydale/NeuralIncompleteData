@@ -142,7 +142,7 @@ end
 
 formatdata(x) = x == "NA" ? missing : parse(Float32, x)
 
-df = CSV.read(joinpath("data", "crypto", "standardised_crypto_data.csv"), DataFrame)
+df = CSV.read(joinpath("data", "crypto", "standardised_data.csv"), DataFrame)
 
 z₁ = Float32.(df[:, :Bitcoin]); z₁ = convert(Vector{Union{Missing, Float32}}, z₁)
 z₂ = formatdata.(df[:, :Ethereum])
@@ -216,6 +216,8 @@ end
 
 #  ---- Encoding approach
 
+println("Starting inference on crypto data using masking approach...")
+
 path = joinpath(savepath, "encoding")
 if !isdir(path) mkdir(path) end
 
@@ -243,6 +245,8 @@ probabilityci(θ̃, path)
 
 
 # ---- Neural EM algorithm
+
+println("Starting inference on crypto data using EM approach...")
 
 path = joinpath(savepath, "neuralEM")
 if !isdir(path) mkdir(path) end
@@ -285,6 +289,8 @@ probabilityestimates(θ̂, path)
 probabilityci(θ̃, path)
 
 # ---- MAP estimator
+
+println("Starting inference on crypto data using analytic MAP estimation...")
 
 path = joinpath(savepath, "MAP")
 if !isdir(path) mkdir(path) end
