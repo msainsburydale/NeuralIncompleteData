@@ -4,7 +4,7 @@ CRANMIRROR <- "https://cran.csiro.au"
 if (!("renv" %in% rownames(installed.packages()))) {
   install.packages("renv", repos = CRANMIRROR)
 }
-depends <- renv::dependencies()
+depends <- renv::dependencies("src")
 depends <- unique(depends$Package)
 
 ## Assuming all of the packages are installed, find the package versions

@@ -19,3 +19,4 @@ fi
 
 Rscript src/GP/Experiment.R $quick
 Rscript src/TrainingTime.R --model=GP
+find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files

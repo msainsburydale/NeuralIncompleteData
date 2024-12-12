@@ -21,3 +21,4 @@ Rscript src/application/sea_ice/Preprocessing.R
 Rscript src/application/sea_ice/Train.R $quick 
 julia --threads=auto --project=. src/application/sea_ice/Inference.jl $quick 
 Rscript src/application/sea_ice/Results.R
+find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files

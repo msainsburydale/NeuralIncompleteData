@@ -1,11 +1,14 @@
 # Boolean indicating whether (TRUE) or not (FALSE) to quickly establish that the code is working properly
 quick <- identical(commandArgs(trailingOnly=TRUE)[1], "--quick")
 
+train_networks <- F
+
 ## R and Julia packages for simulation and neural Bayes estimation
 suppressMessages({
   library("GpGp") # fast_Gp_sim(),  cond_sim(), 
   library("doParallel")
   library("dplyr")
+  library("fields")
   library("Matrix")
   library("NeuralEstimators")
   library("JuliaConnectoR")
@@ -15,7 +18,8 @@ suppressMessages({
 Sys.setenv("JULIACONNECTOR_JULIAOPTS" = "--project=.") 
 juliaEval('using NeuralEstimators, Flux, CUDA')
 juliaEval('using BSON: @load')
-architecture <- juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
+juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
+architecture <- juliaFun("architecture")
 
 model <- "GP"
 int_path <- file.path("intermediates", model)
@@ -32,7 +36,7 @@ source(file.path("src", "Plotting.R"))
 ## Sampling from the prior distribution
 ## K: number of samples to draw from the prior
 sampler <- function(K) { 
-  rho <- runif(K, min = 0.03, max = 0.4)
+  rho <- runif(K, min = 0.03, max = 0.3)
   tau <- runif(K)
   theta <- matrix(c(rho, tau), nrow = 2, byrow = TRUE)
   return(theta)
@@ -65,6 +69,7 @@ simulator <- function(theta) {
 
 ## Example
 # library("GpGp")
+# library("fields")
 # covparms <- c(1,0.3,1,0)
 # N <- 64
 # locs <- as.matrix( expand.grid( (1:N)/N, (1:N)/N ) )
@@ -76,6 +81,8 @@ simulator <- function(theta) {
 # z <- simulateconditional(y, covparms)
 # fields::image.plot(drop(z))
 # z <- simulateconditional(y, covparms, nsims = 30)
+# fields::image.plot(z[, , 1])
+# fields::image.plot(z[, , 2])
 simulateconditional <- function(y, covparms, nsims = 1, m = 30, reorder = TRUE){
   
   covfun_name <- "matern_isotropic"
@@ -107,15 +114,15 @@ simulateconditional <- function(y, covparms, nsims = 1, m = 30, reorder = TRUE){
   
   # reorder observations and locations
   yord_obs<- y_obs[ord1]
-  locsord_obs <- locs_obs[ord1, , drop=FALSE]
-  locsord_pred <- locs_pred[ord2, , drop=FALSE] 
+  locsord_obs <- locs_obs[ord1, , drop = FALSE]
+  locsord_pred <- locs_pred[ord2, , drop = FALSE] 
   
   # put all coordinates together
   locs_all <- rbind(locsord_obs, locsord_pred)
   inds1 <- 1:n_obs
   inds2 <- (n_obs+1):(n_obs+n_pred)
   
-  # get nearest neighbor array (in space only)
+  # get nearest neighbor array
   NNarray_all <- find_ordered_nn(locs_all, m = m, lonlat = get_linkfun(covfun_name)$lonlat)
   
   # get entries of Linv for obs locations and pred locations
@@ -224,7 +231,8 @@ EM <- function(Z1,                      # data (a matrix containing NAs)
       # increment counter if condition is met
       convergence_counter <- convergence_counter + 1  
       # check if convergence criterion has been met for required number of iterations
-      if (convergence_counter == nconsecutive) {        
+      if (convergence_counter == nconsecutive) {
+        if(verbose) print(paste0("Iteration ", l, ": ", paste(theta_l_plus_1, collapse = ", ")))
         if(verbose) message("The EM algorithm has converged")
         theta_all[, l + 1] <- theta_l_plus_1  # store the final iterate
         break
@@ -246,6 +254,7 @@ EM <- function(Z1,                      # data (a matrix containing NAs)
 }
 
 EM_multiple <- function(Z1, estimator, theta_0, ...) {
+  
   # If theta_0 is a vector, replicate it for each element of Z1
   if (is.vector(theta_0)) {
     theta_0 <- matrix(rep(theta_0, length(Z1)), ncol = length(Z1))  # Replicate for each Z1
@@ -253,35 +262,17 @@ EM_multiple <- function(Z1, estimator, theta_0, ...) {
   
   # Apply EM for each Z1 with corresponding theta_0 column
   # thetahat <- mclapply(seq_along(Z1), function(i) {
-  #   EM(Z1[[i]], estimator, theta_0[, i], ...)  
+  #   EM(Z1[[i]], estimator, theta_0[, i], ...)
   # }, mc.cores = detectCores() - 1)
   thetahat <- lapply(seq_along(Z1), function(i) {
-    EM(Z1[[i]], estimator, theta_0[, i], ...)  
+    EM(Z1[[i]], estimator, theta_0[, i], ...)
   })
-  
+
   thetahat <- do.call(cbind, thetahat)
   return(thetahat)
 }
 
-# ---- Training ----
-
-## Simulate training data 
-K <- ifelse(quick, 1000, 25000)    # size of the training set 
-theta_train <- sampler(K)          # parameter vectors used in stochastic-gradient descent during training
-theta_val   <- sampler(K/10)       # parameter vectors used to monitor performance during training
-tm <- system.time({
-  Z_train <- simulator(theta_train)  # data used in stochastic-gradient descent during training
-  Z_val   <- simulator(theta_val)    # data used to monitor performance during training
-})
-saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
-
-## Simulate testing data
-set.seed(1)
-K_test <- ifelse(quick, 100, 1000)
-theta_test <- sampler(K_test)       # parameter vectors used to test performance post training
-Z_test <- simulator(theta_test)     # data used to test performance post training
-
-## Construct data sets for masking approach
+# Removes data completely at random (i.e., generates MCAR data)
 removedata <- function(Z, proportion = runif(1, 0.1, 0.9)) {
   
   # Ensure proportion is between 0 and 1
@@ -297,15 +288,34 @@ removedata <- function(Z, proportion = runif(1, 0.1, 0.9)) {
   
   return(Z)
 }
+
+# ---- Training ----
+
+if (train_networks) {
+  
+cat("Simulating training data...")
+
+## Simulate training data 
+K <- ifelse(quick, 1000, 25000)    # size of the training set 
+
+  theta_train <- sampler(K)          # parameter vectors used in stochastic-gradient descent during training
+  theta_val   <- sampler(K/10)       # parameter vectors used to monitor performance during training
+  tm <- system.time({
+    Z_train <- simulator(theta_train)  # data used in stochastic-gradient descent during training
+    Z_val   <- simulator(theta_val)    # data used to monitor performance during training
+  })
+  saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
+
+
+## Construct data sets for masking approach
 UW_train <- encodedata(lapply(Z_train, removedata))
 UW_val   <- encodedata(lapply(Z_val, removedata))
-UW_test  <- encodedata(lapply(Z_test, removedata))
 
 ## Maximum number of epochs 
 epochs <- ifelse(quick, 10, 100)
 
 ## Train the neural MAP estimator for use in the neural EM algorithm
-neuralMAP <- architecture(p, 1) # initialise NBE with 1 input channel, containing the complete data Z
+neuralMAP <- architecture(p, 1L) # initialise NBE with 1 input channel, containing the complete data Z
 neuralMAP <- train(
   neuralMAP,      
   theta_train = theta_train, 
@@ -318,7 +328,7 @@ neuralMAP <- train(
 )
 
 ## Train the masked neural Bayes estimator
-maskedestimator <- architecture(p, 2) # initialise NBE with 2 input channels, containing the augmented data U and missingness pattern W
+maskedestimator <- architecture(p, 2L) # initialise NBE with 2 input channels, containing the augmented data U and missingness pattern W
 maskedestimator <- train(
   maskedestimator,     
   theta_train = theta_train, 
@@ -329,6 +339,7 @@ maskedestimator <- train(
   epochs = epochs, 
   savepath = file.path(int_path, "runs_masking")
 )
+}
 
 # ---- Load the trained neural networks ----
 
@@ -350,6 +361,12 @@ maskedestimator <- juliaLet('
 
 
 # ---- Assessment with missing data ----
+
+## Simulate testing data
+set.seed(1)
+K_test <- ifelse(quick, 100, 1000)
+theta_test <- sampler(K_test)       
+Z_test <- simulator(theta_test)     
 
 ## Example
 # N <- 64
@@ -406,12 +423,13 @@ H <- 30
 
 ## Estimation over the test set
 set.seed(1)
+cat("Running the masked NBE...")
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
 cat("Running the neural EM algorithm...")
 EM_MCAR <- EM_multiple(Z1_MCAR, theta_0 = theta_0, estimator = neuralMAP)
 EM_MNAR <- EM_multiple(Z1_MNAR, theta_0 = theta_0, estimator = neuralMAP)
-cat("Computing the MAP estimate...")
+cat("Computing the MAP estimates...")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
 saveRDS(masked_MCAR, file = file.path(int_path, "Estimates", "Test", "masked_MCAR.rds"))
@@ -420,6 +438,7 @@ saveRDS(EM_MCAR, file = file.path(int_path, "Estimates", "Test", "EM_MCAR.rds"))
 saveRDS(EM_MNAR, file = file.path(int_path, "Estimates", "Test", "EM_MNAR.rds"))
 saveRDS(MAP_MCAR, file = file.path(int_path, "Estimates", "Test", "MAP_MCAR.rds"))
 saveRDS(MAP_MNAR, file = file.path(int_path, "Estimates", "Test", "MAP_MNAR.rds"))
+saveRDS(theta_test, file = file.path(int_path, "Estimates", "Test", "theta_test.rds"))
 
 estimates_dataframe <- function(estimates, truth, estimator_name) {
   
@@ -444,26 +463,28 @@ MCAR_df <- estimates_dataframe(masked_MCAR, theta_test, "masking") %>%
 MNAR_df <- estimates_dataframe(masked_MNAR, theta_test, "masking") %>% 
   rbind(estimates_dataframe(EM_MNAR, theta_test, "neuralEM")) %>%
   rbind(estimates_dataframe(MAP_MNAR, theta_test, "MAP")) 
-  
+
 write.csv(MCAR_df, file.path(int_path, "Estimates", "estimates_MCAR_test.csv"), row.names = F)
 write.csv(MNAR_df, file.path(int_path, "Estimates", "estimates_MNAR_test.csv"), row.names = F)
 
 #plotestimates(MCAR_df[sample(nrow(MNAR_df)), ], parameter_labels = parameter_labels)
 #plotestimates(MNAR_df[sample(nrow(MNAR_df)), ], parameter_labels = parameter_labels)
+#plotestimates(MCAR_df[sample(nrow(MNAR_df)), ] %>% filter(estimator=="masking"), parameter_labels = parameter_labels)
+#plotestimates(MNAR_df[sample(nrow(MNAR_df)), ] %>% filter(estimator=="masking"), parameter_labels = parameter_labels)
 
-rmse_trimmed <- function(df) {
+rmse <- function(df) {
+  
   df %>%
-    filter(parameter == "rho" & truth > 0.03 & truth < 0.4 | parameter == "tau") %>%
     group_by(estimator) %>% 
+    # filter(parameter == "rho" & truth < 0.3 | parameter == "tau") %>% 
     mutate(squared_error = (estimate - truth)^2) %>%
-    arrange(squared_error) %>%  # Sort the squared errors
-    filter(squared_error >= quantile(squared_error, 0.025) &
-           squared_error <= quantile(squared_error, 0.975)) %>%  # Trim the top 2.5% and bottom 2.5%
-    summarise(trimmed_rmse = sqrt(mean(squared_error))) 
+      group_by(estimator) %>% 
+    summarise(rmse = sqrt(mean(squared_error)), bias = mean(estimate - truth)) 
 }
 
-rmse_df1 <- rmse_trimmed(MCAR_df) 
-rmse_df2 <- rmse_trimmed(MNAR_df) 
+
+rmse_df1 <- rmse(MCAR_df) 
+rmse_df2 <- rmse(MNAR_df) 
 rmse_df1$missingness <- "MCAR"
 rmse_df2$missingness <- "MNAR"
 rmse_df <- rbind(rmse_df1, rmse_df2)
@@ -473,7 +494,7 @@ write.csv(rmse_df, file.path(int_path, "Estimates", "rmse.csv"), row.names = F)
 ## Sampling distributions - estimate many data sets for each parameter vector
 set.seed(1)
 J <- ifelse(quick, 10, 100)
-rho <- qunif(c(0.1, 0.5, 0.9), 0.03, 0.4)
+rho <- qunif(c(0.1, 0.5, 0.9), 0.03, 0.3)
 tau <- qunif(c(0.1, 0.5, 0.9))
 theta <- t(as.matrix(expand.grid(rho, tau)))
 Z <- lapply(1:J, function(j) simulator(theta))  
@@ -500,12 +521,13 @@ savedata <- function(Z, theta, missingness) {
 savedata(Z1_MCAR, theta, "MCAR")
 savedata(Z1_MNAR, theta, "MNAR")
 
+cat("Running the masked NBE...")
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
 cat("Running the neural EM algorithm...")
 EM_MCAR <- EM_multiple(Z1_MCAR, theta_0 = theta_0, estimator = neuralMAP)
 EM_MNAR <- EM_multiple(Z1_MNAR, theta_0 = theta_0, estimator = neuralMAP)
-cat("Computing the MAP estimate...")
+cat("Computing the MAP estimates...")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
 saveRDS(masked_MCAR, file = file.path(int_path, "Estimates", "Scenarios", "masked_MCAR.rds"))
@@ -568,6 +590,13 @@ start_time <- Sys.time()
 estimate(maskedestimator, UW_MCAR[[1]])
 end_time <- Sys.time()
 elapsed_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+df <- df %>% add_row(estimator = "masking_with_overhead", time = elapsed_time)
+
+elapsed_time <- juliaLet('
+uw = gpu(uw)
+maskedestimator = gpu(maskedestimator)
+@elapsed maskedestimator(uw)
+', maskedestimator = maskedestimator, uw = UW_MCAR[[1]])
 df <- df %>% add_row(estimator = "masking", time = elapsed_time)
 
 write.csv(df, file.path(int_path, "runtime_singledataset.csv"))

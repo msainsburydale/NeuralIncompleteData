@@ -19,7 +19,7 @@ fi
 
 
 Rscript src/Potts/Train.R $quick
-find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files
-Rscript src/TrainingTime.R --model=Potts             # compute total runtime
+Rscript src/TrainingTime.R --model=Potts            
 julia --threads=auto --project=. src/Potts/AssessMissing.jl
 Rscript src/Potts/Results.R
+find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files
