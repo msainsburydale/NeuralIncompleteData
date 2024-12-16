@@ -99,10 +99,10 @@ prewhiten <- function(X, replace_missing = c("persistence", "mean")) {
 
 # ---- Crypto data ----
 
-df <- crypto2::crypto_list() %>% 
-  filter(name %in% c("Bitcoin", "Ethereum", "Avalanche")) %>% 
-  crypto2::crypto_history()
-write_csv(df, "data/crypto/raw_data.csv")
+# df <- crypto2::crypto_list() %>% 
+#   filter(name %in% c("Bitcoin", "Ethereum", "Avalanche")) %>% 
+#   crypto2::crypto_history()
+# write_csv(df, "data/crypto/raw_data.csv")
 
 df <- read_csv("data/crypto/raw_data.csv", show_col_types = F)
 df <- df %>%
@@ -133,16 +133,15 @@ df$Currency <- factor(df$Currency, levels = c("Bitcoin", "Ethereum", "Avalanche"
 # Closing prices: time-series
 add_dollar <- function(x, ...) format(paste0("$", x), ...)
 closing_price_labeller <- function(variable, value){
-  titles <- paste("Daily closing prices:", value)
+  titles <- paste("Daily closing prices Yₜ:", value)
   lst <- lapply(titles, identity)
   names(lst) <- value
   return(lst)
 }
+
 p1a <- ggplot(df) +
   geom_line(aes(x = Date, y = value)) +
   facet_wrap(~ Currency, ncol = 1, scales = "free_y", labeller = closing_price_labeller) +
-  # scale_y_continuous(labels = add_dollar) +
-  # scale_y_continuous(labels = function(x) paste0("$", format(x, big.mark = ",", scientific = FALSE))) + 
   scale_y_continuous(labels = function(x) paste0("$", format(x, scientific = FALSE))) + 
   scale_x_date(date_breaks = "2 year", date_labels =  "%b %Y") +
   theme_bw() +
@@ -154,7 +153,7 @@ p1a <- ggplot(df) +
 
 # log-daily returns: time series
 returns_labeller <- function(variable,value){
-  titles <- paste("Log-daily returns:", value)
+  titles <- paste("Log-daily returns rₜ:", value)
   lst <- lapply(titles, identity)
   names(lst) <- value
   return(lst)
@@ -201,7 +200,7 @@ df <- df %>% group_by(Currency) %>% mutate(stdresiduals = prewhiten(logreturn))
 
 # Standardised residuals: time series
 residuals_labeller <- function(variable,value){
-  titles <- paste("Standardised residuals from log-daily returns:", value)
+  titles <- paste("Standardised residuals Zₜ from log-daily returns rₜ:", value)
   lst <- lapply(titles, identity)
   names(lst) <- value
   return(lst)
@@ -246,36 +245,12 @@ p4a <- ggarrange(plotlist = plots, nrow = 1)
 
 
 # Save the plots
-ggsave(
-  p1, file = "log-returns-time-series.pdf",
-  width = 12, height = 5, device = "pdf", path = img_path
-)
-
-ggsave(
-  p2, file = "log-returns-pairs.pdf",
-  width = 7, height = 5.5, device = "pdf", path = img_path
-)
-
-ggsave(
-  p2a, file = "log-returns-pairs-scatteronly.pdf",
-  width = 9, height = 2.5, device = "pdf", path = img_path
-)
-
-
-ggsave(
-  p3, file = "std-residuals-time-series.pdf",
-  width = 12, height = 5, device = "pdf", path = img_path
-)
-
-ggsave(
-  p4, file = "std-residuals-pairs.pdf",
-  width = 7, height = 5.5, device = "pdf", path = img_path
-)
-
-ggsave(
-  p4a, file = "std-residuals-pairs-scatteronly.pdf",
-  width = 9, height = 2.5, device = "pdf", path = img_path
-)
+ggsv(p1, file = "log-returns-time-series", width = 12, height = 5, path = img_path)
+ggsv(p2, file = "log-returns-pairs", width = 7, height = 5.5, path = img_path)
+ggsv(p2a, file = "log-returns-pairs-scatteronly", width = 9, height = 2.5, path = img_path)
+ggsv(p3, file = "std-residuals-time-series", width = 12, height = 5, path = img_path)
+ggsv(p4, file = "std-residuals-pairs", width = 7, height = 5.5, path = img_path)
+ggsv(p4a, file = "std-residuals-pairs-scatteronly", width = 9, height = 2.5, path = img_path)
 
 
 ## Save the standardised data for inference in Julia

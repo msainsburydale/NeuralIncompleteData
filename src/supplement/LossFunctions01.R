@@ -61,7 +61,7 @@ figure_1a <- ggplot(df) +
   facet_wrap(~fct_rev(beta), labeller = label_parsed, nrow = 1) +
   labs(
     x = expression(hat(theta) - theta),
-    y = TeX(r'($L_{POW}(\hat{\theta} - \theta; \, \beta, \delta)$)'), 
+    y = TeX(r'($L_{POW}(\hat{\theta}, \theta; \, \beta, \delta)$)'), 
     colour = expression(delta)
   ) +
   scale_x_continuous(breaks = xbreaks) +
@@ -81,7 +81,7 @@ figure_1b <- ggplot(df) +
   facet_grid(delta~fct_rev(beta), labeller = label_parsed, scales = "free") +
   labs(
     x = expression(hat(theta) - theta),
-    y = TeX(r'($\frac{d L_{POW}(\hat{\theta} - \theta; \, \beta, \delta)}{d (\hat{\theta} - \theta)}$)')
+    y = TeX(r'($\frac{d L_{POW}(\hat{\theta}, \theta; \, \beta, \delta)}{d (\hat{\theta} - \theta)}$)')
   ) +
   scale_x_continuous(breaks = xbreaks) +
   scale_fill_manual(values = c("black", "white")) + 
@@ -125,7 +125,7 @@ figure_2a <- ggplot(df) +
   facet_wrap(~fct_rev(kappa), labeller = label_parsed, nrow = 1) +
   labs(
     x = expression(hat(theta) - theta),
-    y = TeX(r'($L_{TANH}(\hat{\theta} - \theta; \, \kappa)$)')
+    y = TeX(r'($L_{TANH}(\hat{\theta}, \theta; \, \kappa)$)')
   ) +
   theme_bw() + 
   scale_x_continuous(breaks = xbreaks) + 
@@ -141,7 +141,7 @@ figure_2b <- ggplot(df) +
   facet_wrap(~fct_rev(kappa), labeller = label_parsed, nrow = 1) +
   labs(
     x = expression(hat(theta) - theta),
-    y = TeX(r'($\frac{d L_{TANH}(\hat{\theta} - \theta; \, \kappa)}{d (\hat{\theta} - \theta)}$)')
+    y = TeX(r'($\frac{d L_{TANH}(\hat{\theta}, \theta; \, \kappa)}{d (\hat{\theta} - \theta)}$)')
   ) +
   theme_bw() + 
   scale_x_continuous(breaks = xbreaks) + 

@@ -35,7 +35,6 @@ replace_unicode <- function(text) {
 # the order of this controls the display order
 estimator_colours <- c(
   "MAP" = "gold",
-  "conventionalEM" = "darkorange",
   "neuralEM" = "chartreuse4",
   "masking" = "deepskyblue3"
 )
@@ -78,11 +77,17 @@ field_plot <- function(field, regular = TRUE, variable = "Z") {
   return(gg)
 }
 
-ggsv <- function(filename, plot, ...) {
+ggsv <- function(filename, plot, device = NULL, ...) {
   suppressWarnings({
-    # for (device in c("pdf", "png")) {
-    for (device in c("pdf")) {
+    # If a specific device is provided, use only that device
+    if (!is.null(device)) {
       ggsave(plot, file = paste0(filename, ".", device), device = device, ...)
+    } else {
+      # Default behavior: loop over the devices
+      # for (dev in c("pdf", "png")) {
+      for (dev in c("pdf")) {
+        ggsave(plot, file = paste0(filename, ".", dev), device = dev, ...)
+      }
     }
   })
 }

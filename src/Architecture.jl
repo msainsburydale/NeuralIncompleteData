@@ -41,11 +41,11 @@ end
 
 
 # Compute the output dimensions and number of parameters at each layer:
-arch = architecture(1)[1].arch
-nn = Chain(arch.ψ..., arch.ϕ...)
-z  = rand32(64, 64, 1, 1)
-[size(nn[1:i](z)) for i in eachindex(nn)]
-[nparams(nn[i]) for i in eachindex(nn)]
-"Total number of neural-network parameters: $(nparams(nn))"
+# arch = architecture(1)[1].arch
+# nn = Chain(arch.ψ..., arch.ϕ...)
+# z  = rand32(64, 64, 1, 1)
+# [size(nn[1:i](z)) for i in eachindex(nn)]
+# [nparams(nn[i]) for i in eachindex(nn)]
+# "Total number of neural-network parameters: $(nparams(nn))"
 
 

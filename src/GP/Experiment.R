@@ -1,7 +1,7 @@
 # Boolean indicating whether (TRUE) or not (FALSE) to quickly establish that the code is working properly
 quick <- identical(commandArgs(trailingOnly=TRUE)[1], "--quick")
 
-train_networks <- F
+train_networks <- FALSE
 
 ## R and Julia packages for simulation and neural Bayes estimation
 suppressMessages({
@@ -21,9 +21,8 @@ juliaEval('using BSON: @load')
 juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
 architecture <- juliaFun("architecture")
 
-model <- "GP"
-int_path <- file.path("intermediates", model)
-img_path <- file.path("img", model)
+int_path <- file.path("intermediates", "GP")
+img_path <- file.path("img", "GP")
 dir.create(int_path, recursive = TRUE, showWarnings = FALSE)
 dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(int_path, "Estimates", "Test"), recursive = TRUE, showWarnings = FALSE)
@@ -36,7 +35,7 @@ source(file.path("src", "Plotting.R"))
 ## Sampling from the prior distribution
 ## K: number of samples to draw from the prior
 sampler <- function(K) { 
-  rho <- runif(K, min = 0.03, max = 0.3)
+  rho <- runif(K, min = 0.03, max = 0.35)
   tau <- runif(K)
   theta <- matrix(c(rho, tau), nrow = 2, byrow = TRUE)
   return(theta)
@@ -67,22 +66,20 @@ simulator <- function(theta) {
   return(Z)
 }
 
-## Example
+## Conditional simulation using GpGp
 # library("GpGp")
 # library("fields")
-# covparms <- c(1,0.3,1,0)
-# N <- 64
-# locs <- as.matrix( expand.grid( (1:N)/N, (1:N)/N ) )
-# y <- fast_Gp_sim(covparms, "matern_isotropic", locs)
-# y <- matrix(y, N, N)
-# fields::image.plot(y)
-# y[1:(N/4),] <- NA
-# fields::image.plot(y)
-# z <- simulateconditional(y, covparms)
-# fields::image.plot(drop(z))
-# z <- simulateconditional(y, covparms, nsims = 30)
-# fields::image.plot(z[, , 1])
-# fields::image.plot(z[, , 2])
+# covparms <- c(1, 0.3, 1, 0)                                        # covariance parameters
+# N <- 64                                                            # number of points in each direction
+# locs <- as.matrix(expand.grid((1:N)/N, (1:N)/N))                   # spatial locations
+# y <- matrix(fast_Gp_sim(covparms, "matern_isotropic", locs), N, N) # complete data
+# y[1:(N/4),] <- NA                                                  # incomplete data
+# z <- simulateconditional(y, covparms, nsims = 30)                  # conditionally-completed data
+# par(mfrow = c(1, 3))
+# zlim_range <- range(c(y, z[, , 1], z[, , 2]), na.rm = TRUE)
+# fields::image.plot(y, zlim = zlim_range, main = "Incomplete data")
+# fields::image.plot(z[, , 1], zlim = zlim_range, main = "Conditional simulation 1")
+# fields::image.plot(z[, , 2], zlim = zlim_range, main = "Conditional simulation 2")
 simulateconditional <- function(y, covparms, nsims = 1, m = 30, reorder = TRUE){
   
   covfun_name <- "matern_isotropic"
@@ -127,7 +124,7 @@ simulateconditional <- function(y, covparms, nsims = 1, m = 30, reorder = TRUE){
   
   # get entries of Linv for obs locations and pred locations
   Linv_all <- vecchia_Linv(covparms, covfun_name, locs_all, NNarray_all)
-
+  
   # Conditional simulations  
   condsim <- matrix(NA, n_pred, nsims)
   for(j in 1:nsims){
@@ -153,8 +150,9 @@ simulateconditional <- function(y, covparms, nsims = 1, m = 30, reorder = TRUE){
   return(y_array)
 }
 
+
 ## MAP estimator using GpGp::fit_model
-MAP <- function(Z, tau_0 = 0.5, rho_0 = 0.3) {
+MAP <- function(Z, tau_0 = 0.5, rho_0 = 0.175) {
   
   Z <- drop(Z)
   
@@ -418,7 +416,7 @@ UW_MCAR <- encodedata(Z1_MCAR)
 UW_MNAR <- encodedata(Z1_MNAR)
 
 ## Initial estimates and number of conditional simulations in neural EM algorithm
-theta_0 <- c(0.2, 0.5)
+theta_0 <- c(0.175, 0.5)
 H <- 30 
 
 ## Estimation over the test set
@@ -492,9 +490,8 @@ rmse_df
 write.csv(rmse_df, file.path(int_path, "Estimates", "rmse.csv"), row.names = F)
 
 ## Sampling distributions - estimate many data sets for each parameter vector
-set.seed(1)
 J <- ifelse(quick, 10, 100)
-rho <- qunif(c(0.1, 0.5, 0.9), 0.03, 0.3)
+rho <- qunif(c(0.1, 0.5, 0.9), 0.05, 0.3)
 tau <- qunif(c(0.1, 0.5, 0.9))
 theta <- t(as.matrix(expand.grid(rho, tau)))
 Z <- lapply(1:J, function(j) simulator(theta))  
@@ -655,7 +652,7 @@ figures <- lapply(unique(df$k), function(kk) {
       field_plot(filter(zdf, j == 1, missingness == mis), regular = T) + 
         scale_x_continuous(breaks = c(0.2, 0.5, 0.8), expand = c(0, 0)) +
         scale_y_continuous(breaks = c(0.2, 0.5, 0.8), expand = c(0, 0)) +
-        labs(fill = "Z") +
+        labs(fill = expression(Z[1])) +
         theme(legend.title.align = 0.25, legend.title = element_text(face = "bold"))
     })
   })
@@ -678,6 +675,7 @@ figures <- lapply(unique(df$k), function(kk) {
   
   
   ## Box plots
+  df$estimator <- factor(df$estimator, levels = c("MAP", "neuralEM", "masking"))
   box <- lapply(missingness, function(mis) {
     plotdistribution(filter(df, missingness == mis), type = "box", parameter_labels = parameter_labels, estimator_labels = estimator_labels, truth_line_size = 1, return_list = TRUE, flip = TRUE)
   })
@@ -704,9 +702,7 @@ figures <- lapply(unique(df$k), function(kk) {
   box <- do.call(c, box_split)
   suppressMessages({
     box <- lapply(box, function(gg) gg + scale_estimator_aesthetic(df))
-  })
-  box_legend <- get_legend(box[[1]])
-  suppressMessages({
+    box_legend <- get_legend(box[[1]])
     box <- lapply(box, function(gg) {
       gg$facet$params$nrow <- 2
       gg$facet$params$strip.position <- "bottom"
@@ -725,3 +721,4 @@ figures <- lapply(unique(df$k), function(kk) {
        width = 2 * (p+2), height = 4.5)
   
 })
+

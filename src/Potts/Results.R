@@ -77,7 +77,7 @@ figures <- lapply(unique(df$k), function(kk) {
       field <- filter(zdf, j == 2, missingness == mis)
       
       gg <- ggplot(field, aes(x = x, y = y)) + 
-        geom_tile(aes(fill = Z)) +
+        geom_tile(aes(fill = expression(Z[1]))) +
         scale_fill_viridis(option = "magma", discrete = TRUE, na.value = "gray") +
         # scale_fill_viridis(option = "plasma", discrete = TRUE, na.value = "gray") +
         # scale_fill_manual(values = c("1" = "darkblue", "2" = "white"), na.value = "red") + 
