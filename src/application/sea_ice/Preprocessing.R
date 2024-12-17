@@ -71,6 +71,11 @@ sea_ice <- lapply(sea_ice, function(mat) mat[first_nonzero_row:last_nonzero_row,
 longitude <- longitude[first_nonzero_row:last_nonzero_row, first_nonzero_col:last_nonzero_col]
 latitude <- latitude[first_nonzero_row:last_nonzero_row, first_nonzero_col:last_nonzero_col]
 
+# dim(longitude)
+# dim(latitude)
+# fields::image.plot(longitude)
+# fields::image.plot(latitude)
+
 # Threshold the data (> 15% considered ice)
 sea_ice <- lapply(sea_ice, function(mat) {
   mat[mat >= 0.15] <- 1
