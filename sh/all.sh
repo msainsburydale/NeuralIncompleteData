@@ -19,7 +19,7 @@ source sh/simulations_GP.sh             # Section 3.2
 source sh/simulations_Potts.sh          # Section 3.3
 source sh/application_sea_ice.sh        # Section 4
 source sh/application_crypto.sh         # Section S6.2
-
+source sh/supplement.sh                 # Other supplementary results
 
 # Remove intermediate networks to reduce the folder’s memory size
 find . -type f -name "network_epoch*" -exec rm {} +

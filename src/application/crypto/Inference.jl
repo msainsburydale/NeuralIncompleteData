@@ -7,7 +7,17 @@ using Random: seed!
 using Folds
 using StatsBase: ecdf
 
-B = 400 # number of bootstrap samples
+using ArgParse
+arg_table = ArgParseSettings()
+@add_arg_table arg_table begin
+	"--quick"
+		help = "Flag controlling whether or not a computationally inexpensive run should be done."
+		action = :store_true
+end
+parsed_args = parse_args(arg_table)
+quick       = parsed_args["quick"]
+
+B = quick ? 30 : 400 # number of bootstrap samples
 
 include(joinpath(pwd(), "src", "application", "crypto", "Model.jl"))
 include(joinpath(pwd(), "src", "application", "crypto", "MAP.jl"))
@@ -378,3 +388,38 @@ df_ci  = broadcast(t -> t[2], df); df_ci = vcat(df_ci...)
 
 CSV.write(joinpath(path, "probability_estimates.csv"), df_est)
 CSV.write(joinpath(path, "probability_pointwise_intervals.csv"), df_ci)
+
+
+# ---- Compare neural MAP to analytic MAP ----
+
+println("Comparing neural MAP to analytic MAP...")
+
+K = quick ? 30 : 300
+
+# Sample parameter configurations and simulate data
+seed!(1)
+θ = Parameters(K, ξ)
+Z = simulate(θ, H*m)
+
+# Assess the neural MAP estimator
+println("Computing neural MAP estimates...")
+assessment = assess(
+	neuralMAP, θ, Z;
+	estimator_name = "neuralMAP",
+	parameter_names = ξ.parameter_names,
+	verbose = false
+)
+
+# Assess the MAP estimator
+println("Computing analytic MAP estimates...")
+assessment = merge(assessment, assess(
+	MAP, θ, Z;
+	ξ = merge(ξ, (θ₀ = θ.θ,)), 
+	estimator_name = "MAP",
+	parameter_names = ξ.parameter_names,
+	verbose = true,
+	use_gpu = false
+))
+
+# Save the results
+CSV.write(joinpath(savepath,  "estimates_complete.csv"), assessment.df)

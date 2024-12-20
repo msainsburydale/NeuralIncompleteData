@@ -291,52 +291,53 @@ removedata <- function(Z, proportion = runif(1, 0.1, 0.9)) {
 
 if (train_networks) {
   
-cat("Simulating training data...")
-
-## Simulate training data 
-K <- ifelse(quick, 1000, 25000)    # size of the training set 
-
-  theta_train <- sampler(K)          # parameter vectors used in stochastic-gradient descent during training
-  theta_val   <- sampler(K/10)       # parameter vectors used to monitor performance during training
-  tm <- system.time({
-    Z_train <- simulator(theta_train)  # data used in stochastic-gradient descent during training
-    Z_val   <- simulator(theta_val)    # data used to monitor performance during training
-  })
-  saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
-
-
-## Construct data sets for masking approach
-UW_train <- encodedata(lapply(Z_train, removedata))
-UW_val   <- encodedata(lapply(Z_val, removedata))
-
-## Maximum number of epochs 
-epochs <- ifelse(quick, 10, 100)
-
-## Train the neural MAP estimator for use in the neural EM algorithm
-neuralMAP <- architecture(p, 1L) # initialise NBE with 1 input channel, containing the complete data Z
-neuralMAP <- train(
-  neuralMAP,      
-  theta_train = theta_train, 
-  theta_val = theta_val, 
-  Z_train = Z_train, 
-  Z_val = Z_val, 
-  loss = tanhloss(0.1), 
-  epochs = epochs, 
-  savepath = file.path(int_path, "runs_EM")
-)
-
-## Train the masked neural Bayes estimator
-maskedestimator <- architecture(p, 2L) # initialise NBE with 2 input channels, containing the augmented data U and missingness pattern W
-maskedestimator <- train(
-  maskedestimator,     
-  theta_train = theta_train, 
-  theta_val = theta_val, 
-  Z_train = UW_train, 
-  Z_val = UW_val, 
-  loss = tanhloss(0.1), 
-  epochs = epochs, 
-  savepath = file.path(int_path, "runs_masking")
-)
+  cat("Simulating training data...")
+  
+  ## Simulate training data 
+  K <- ifelse(quick, 1000, 25000)    # size of the training set 
+  
+    theta_train <- sampler(K)          # parameter vectors used in stochastic-gradient descent during training
+    theta_val   <- sampler(K/10)       # parameter vectors used to monitor performance during training
+    tm <- system.time({
+      Z_train <- simulator(theta_train)  # data used in stochastic-gradient descent during training
+      Z_val   <- simulator(theta_val)    # data used to monitor performance during training
+    })
+    saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
+  
+  
+  ## Construct data sets for masking approach
+  UW_train <- encodedata(lapply(Z_train, removedata))
+  UW_val   <- encodedata(lapply(Z_val, removedata))
+  
+  ## Maximum number of epochs 
+  epochs <- ifelse(quick, 10, 100)
+  
+  ## Train the neural MAP estimator for use in the neural EM algorithm
+  neuralMAP <- architecture(p, 1L) # initialise NBE with 1 input channel, containing the complete data Z
+  neuralMAP <- train(
+    neuralMAP,      
+    theta_train = theta_train, 
+    theta_val = theta_val, 
+    Z_train = Z_train, 
+    Z_val = Z_val, 
+    loss = tanhloss(0.1), 
+    epochs = epochs, 
+    savepath = file.path(int_path, "runs_EM")
+  )
+  
+  ## Train the masked neural Bayes estimator
+  maskedestimator <- architecture(p, 2L) # initialise NBE with 2 input channels, containing the augmented data U and missingness pattern W
+  maskedestimator <- train(
+    maskedestimator,     
+    theta_train = theta_train, 
+    theta_val = theta_val, 
+    Z_train = UW_train, 
+    Z_val = UW_val, 
+    loss = tanhloss(0.1), 
+    epochs = epochs, 
+    savepath = file.path(int_path, "runs_masking")
+  )
+  
 }
 
 # ---- Load the trained neural networks ----
@@ -356,7 +357,6 @@ maskedestimator <- juliaLet('
   Flux.loadmodel!(estimator, model_state)
   estimator
 ', p = p, int_path = int_path)
-
 
 # ---- Assessment with missing data ----
 

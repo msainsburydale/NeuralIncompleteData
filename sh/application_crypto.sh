@@ -19,6 +19,6 @@ fi
 
 Rscript src/application/crypto/Preprocessing.R
 julia --threads=auto --project=. src/application/crypto/Train.jl $quick 
-julia --threads=auto --project=. src/application/crypto/Inference.jl 
+julia --threads=auto --project=. src/application/crypto/Inference.jl $quick 
 Rscript src/application/crypto/Results.R
 find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files

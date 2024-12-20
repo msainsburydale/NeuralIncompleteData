@@ -8,6 +8,68 @@ options(warn = -1)
 img_path <- file.path("img", "application", "crypto")
 dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
 
+# ---- neural MAP vs analytic MAP ----
+
+df <- file.path(img_path, "estimates_complete.csv") %>% read.csv
+
+parameter_labels = c(
+  "γ" = expression(hat(alpha)),
+  "ω" = expression(hat(omega)),
+  "λ" = expression(hat(lambda)),
+  "Σ21" = TeX("$\\hat{Sigma}_{21,}$"),
+  "Σ31" = TeX("$\\hat{Sigma}_{31,}$"),
+  "Σ32" = TeX("$\\hat{Sigma}_{32,}$")
+)
+
+plotmarginals <- function(df, estimator_labels, parameter_labels) {
+  
+  if (length(unique(df$estimator)) != 2) stop("df should contain results from exactly two estimators")
+  
+  # subset estimator and parameter labels
+  estimator_labels <- estimator_labels[names(estimator_labels) %in% df$estimator]
+  parameter_labels <- parameter_labels[names(parameter_labels) %in% df$parameter]
+  
+  # convert to wide format based on the parameters and estimator names
+  df <- df %>%
+    pivot_wider(names_from = parameter, values_from = c("estimate", "truth")) %>%
+    pivot_wider(names_from = estimator, values_from = paste("estimate", names(parameter_labels), sep = "_")) %>%
+    as.data.frame
+  
+  parameters <- as.list(parameter_labels)
+  estimators <- names(estimator_labels)
+  p          <- length(parameter_labels)
+  
+  marginal <- lapply(1:p, function(i) {
+    
+    columns <- paste("estimate", names(parameter_labels)[i], estimators, sep = "_")
+    lmts <- range(df[, columns])
+    
+    gg <- ggplot(df) +
+      geom_point(aes(!!sym(columns[2]), !!sym(columns[1]))) +
+      geom_abline(colour = "red") +
+      theme_bw() +
+      theme(strip.background = element_blank(), strip.text.x = element_blank()) +
+      coord_fixed(xlim = lmts, ylim = lmts) + 
+      labs(
+        x = as.expression(bquote(.(parameters[[i]])[.(estimator_labels[2])])),
+        y = as.expression(bquote(.(parameters[[i]])[.(estimator_labels[1])]))
+      )
+  })
+  
+  return(marginal)
+}
+
+marginal <- plotmarginals(
+  df = df,
+  estimator_labels = c("neuralMAP" = "neural MAP", "MAP" = "MAP"), 
+  parameter_labels = parameter_labels
+)
+
+marginal <- egg::ggarrange(plots = marginal, nrow = 2)
+ggsv(file = "scatterplot", plot = marginal, width = 8.5, height = 5.5, path = img_path)
+
+# ---- inference with incomplete crypto data ----
+
 df1 <- file.path(img_path, "empirical", "probability_estimates.csv") %>% read.csv %>% mutate(estimator = "empirical")
 df2 <- file.path(img_path, "neuralEM", "probability_estimates.csv") %>% read.csv %>% mutate(estimator = "neuralEM")
 df3 <- file.path(img_path, "encoding", "probability_estimates.csv") %>% read.csv %>% mutate(estimator = "encoding")
@@ -57,13 +119,8 @@ makeplot_pointwise <- function(df_est, df_ci, tl) {
     ) 
 }
 
-gg1 <- makeplot_pointwise(df_est, df_ci, "lower") + labs(y = TeX("$Pr(U_i < u, U_j < u)$")) + scale_x_continuous(breaks = c(0.02, 0.05, 0.08))
-gg2 <- makeplot_pointwise(df_est, df_ci, "upper") + labs(y = TeX("$Pr(U_i > u, U_j > u)$")) + scale_x_continuous(breaks = c(0.92, 0.95, 0.98))
-figure <- ggarrange(gg1, gg2, nrow = 2, align = "hv")
-
-ggsv(file = "tail-probabilities-lower_pointwise", plot = gg1, width = 9.5, height = 3, path = img_path)
-ggsv(file = "tail-probabilities-upper_pointwise", plot = gg2, width = 9.5, height = 3, path = img_path)
-ggsv(file = "tail-probabilities_pointwise", plot = figure, width = 9.5, height = 6.5, path = img_path)
+figure <- makeplot_pointwise(df_est, df_ci, "lower") + labs(y = TeX("$Pr(U_i < u, U_j < u)$")) + scale_x_continuous(breaks = c(0.02, 0.05, 0.08))
+ggsv(file = "tail-probabilities", plot = figure, width = 9.5, height = 3, path = img_path)
 
 options(warn = oldw)
 
