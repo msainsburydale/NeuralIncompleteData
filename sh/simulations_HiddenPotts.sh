@@ -6,7 +6,7 @@ set -e
 # export OPENBLAS_NUM_THREADS=1
 
 echo ""
-echo "#### Starting GP simulation study (Section 3.2) ####"
+echo "#### Starting hidden-Potts simulation study (Section 3.3) ####"
 echo ""
 
 if [[ -z "${quick_str+x}" ]]; then
@@ -23,13 +23,23 @@ else
     exit 1
 fi
 
-OPENBLAS_NUM_THREADS=1 Rscript src/GP/Experiment.R $quick
-find . -type f -name "network_epoch*" -exec rm {} +  # delete extraneous files
+# Train the NBEs 
+OPENBLAS_NUM_THREADS=1 Rscript src/HiddenPotts/Train.R $quick
+
+# Assess with missing data 
+julia --project=. --threads=auto src/HiddenPotts/Experiment.jl
+
+# Generate results
+Rscript src/HiddenPotts/Results.R
+
+# Delete extraneous files
+find . -type f -name "network_epoch*" -exec rm {} +  
 
 # Convert pdf images to png
-find img/GP/ -type f -iname "*.pdf" -exec sh -c '
+find img/HiddenPotts/ -type f -iname "*.pdf" -exec sh -c '
   for f do
     out="${f%.pdf}.png"
     gs -q -dSAFER -dBATCH -dNOPAUSE -sDEVICE=pngalpha -r600 -o "$out" "$f" >/dev/null 2>&1
   done
 ' sh {} +
+

@@ -4,7 +4,8 @@ CRANMIRROR <- "https://cran.csiro.au"
 if (!("renv" %in% rownames(installed.packages()))) {
   install.packages("renv", repos = CRANMIRROR)
 }
-depends <- renv::dependencies("src")
+# List all subdirectories except 'unused'
+subdirs <- setdiff(list.dirs("src", recursive = FALSE), "src/unused")
 depends <- unique(depends$Package)
 
 ## Assuming all of the packages are installed, find the package versions

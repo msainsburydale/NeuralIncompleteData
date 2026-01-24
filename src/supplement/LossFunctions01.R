@@ -57,12 +57,13 @@ df$delta <- factor(df$delta)
 df$beta <- factor(df$beta)
 levels(df$beta) <- sapply(paste("$\\beta$ = ", levels(df$beta)), TeX)
 figure_1a <- ggplot(df) +
-  geom_line(aes(x = displacement, y = L_beta, colour = delta, group = delta)) +
+  geom_line(aes(x = displacement, y = L_beta, colour = delta, group = delta, linetype = delta)) +
   facet_wrap(~fct_rev(beta), labeller = label_parsed, nrow = 1) +
   labs(
     x = expression(hat(theta) - theta),
     y = TeX(r'($L_{POW}(\hat{\theta}, \theta; \, \beta, \delta)$)'), 
-    colour = expression(delta)
+    colour = expression(delta), 
+    linetype = expression(delta)
   ) +
   scale_x_continuous(breaks = xbreaks) +
   theme_bw() + 
@@ -101,7 +102,7 @@ figure_1 <- egg::ggarrange(figure_1a, figure_1b, heights = c(1, 2))
 L_kappa <- function(displacement, kappa)  abs(tanh(displacement/kappa))
 L_kappa_gradient <- function(displacement, kappa) (-1)^(displacement < 0) * (1 - tanh(displacement/kappa)^2) / kappa
 
-kappa <- c(0.05, 0.1, 0.5, 1)
+kappa <- c(0.05, 0.1, 0.5, 1) 
 
 df <- expand.grid(kappa = kappa, displacement = displacement)
 df$L_kappa <- L_kappa(df$displacement, df$kappa)
@@ -156,9 +157,9 @@ figure_2a <- figure_2a + theme(axis.title.x = element_blank(), axis.text.x = ele
 figure_2b <- figure_2b + theme(strip.background = element_blank(), strip.text.x = element_blank())
 figure_2 <- egg::ggarrange(figure_2a, figure_2b, heights = c(1, 1))
 
-figure <- egg::ggarrange(figure_1a, figure_1b, figure_2a, figure_2b, ncol = 1, labels = c("A", "", "B", ""))
+figure <- egg::ggarrange(figure_2a, figure_2b, figure_1a, figure_1b, ncol = 1, labels = c("A", "", "B", ""))
 
-#ggsave(figure, file = "loss_and_gradient.png", width = 8, height = 8, path = "img", device = "png", dpi = 600)
+# ggsave(figure, file = "loss_and_gradient.png", width = 8, height = 8, path = "img", device = "png", dpi = 600)
 ggsave(figure, file = "loss_and_gradient.pdf", width = 8, height = 8, path = "img", device = "pdf")
 
 # ---- Visualise tanh loss ----

@@ -4,7 +4,7 @@
 
 > _**Figure 2**: The inference stage of the neural EM algorithm. Data with missing entries are completed by simulating conditionally on the incomplete data and the current estimates. The conditionally-independent replicates are then input to a neural Bayes estimator trained to approximate the MAP estimator, with the resulting estimates used for conditional simulation in the next iteration of the algorithm._
 
-This repository contains the source code for reproducing the results in "Neural Parameter Estimation with Incomplete Data" (Sainsbury-Dale, Zammit-Mangion, Cressie, Huser, 2024+).
+This repository contains the source code for reproducing the results in ["Neural Parameter Estimation with Incomplete Data"](https://arxiv.org/abs/2501.04330).
 
 The methodology described in the manuscript has been incorporated into the package NeuralEstimators, which is available in [Julia](https://msainsburydale.github.io/NeuralEstimators.jl/dev/) and [R](https://CRAN.R-project.org/package=NeuralEstimators). In particular, see the examples given in the [Julia documentation](https://msainsburydale.github.io/NeuralEstimators.jl/dev/workflow/advancedusage/#Missing-data) and the [R vignette](https://cran.r-project.org/web/packages/NeuralEstimators/vignettes/NeuralEstimators_IncompleteData.html). The code in this repository is therefore made available primarily for reproducibility purposes, and we encourage readers seeking to implement this methodology to explore the package and its documentation. Users are also invited to contact the package maintainer for assistance. 
 

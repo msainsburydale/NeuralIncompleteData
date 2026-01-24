@@ -15,10 +15,19 @@ if ! [[ $quick_str == "y" ||  $quick_str == "Y" || $quick_str == "n" ||  $quick_
     exit 1
 fi
 
+echo ""
+echo "#### Starting main-text simulation studies (Section 3) ####"
+echo ""
 source sh/simulations_GP.sh             # Section 3.2 
-source sh/simulations_Potts.sh          # Section 3.3
-source sh/application_sea_ice.sh        # Section 4
-source sh/application_crypto.sh         # Section S6.2
+source sh/simulations_HiddenPotts.sh    # Section 3.3
+
+# source sh/application_sea_ice.sh        # Section 4
+
+echo ""
+echo "#### Starting supplementary experiments ####"
+echo ""
+source sh/simulations_GH.sh             # Section S4
+source sh/training_info.sh              # Training run time and risk profiles
 source sh/supplement.sh                 # Other supplementary results
 
 # Remove intermediate networks to reduce the folder’s memory size

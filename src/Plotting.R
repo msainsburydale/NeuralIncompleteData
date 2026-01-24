@@ -32,11 +32,12 @@ replace_unicode <- function(text) {
     str_replace("ω2", "omega[2]")
 }
 
-# the order of this controls the display order
 estimator_colours <- c(
   "MAP" = "gold",
   "neuralEM" = "chartreuse4",
-  "masking" = "deepskyblue3"
+  "EM" = "chartreuse4",
+  "masking" = "deepskyblue3",
+  "ABC MAP" = "red"
 )
 
 # Function for changing the aesthetics 
@@ -44,7 +45,7 @@ scale_estimator_aesthetic <- function(df, scale = "colour", values = estimator_c
   estimators <- unique(df$estimator)
   ggplot2:::manual_scale(
     scale,
-    values = values[estimators],        # allows for only a subset of estimators
+    values = values[as.character(estimators)],        # allows for only a subset of estimators
     labels = estimator_labels[estimators],
     breaks = names(estimator_colours)[names(estimator_colours) %in% estimators], # specifies the order of the estimators in the plot
     ...
@@ -61,7 +62,7 @@ field_plot <- function(field, regular = TRUE, variable = "Z") {
   if (regular) {
     gg <- gg +
       geom_tile(aes(fill = !!sym(variable))) +
-  scale_fill_viridis_c(option = "magma")
+      scale_fill_viridis_c(option = "magma")
   } else {
     gg <- gg +
       geom_point(aes(colour = !!sym(variable))) +
@@ -76,6 +77,75 @@ field_plot <- function(field, regular = TRUE, variable = "Z") {
 
   return(gg)
 }
+
+
+
+plot_EM_trajectories <- function(
+    df,
+    parameter_labels,
+    max_iteration = 50,
+    H = NULL,       # which nsims to include, NULL for all
+    theta_df = NULL,           # optional dataframe for reference lines
+    MAP_df = NULL,             # optional dataframe for MAP reference lines
+    colour_by_theta_0 = FALSE, 
+    show_average = TRUE
+) {
+  
+  if (min(df$iteration) == 1) {
+    df$iteration <- df$iteration - 1
+  }
+  
+  # Apply optional nsims filter
+  if (!is.null(H)) {
+    df <- df %>% filter(nsims %in% H)
+  }
+  
+  # Convert parameter to factor with labels
+  df <- df %>%
+    mutate(
+      parameter = factor(parameter, levels = names(parameter_labels), labels = parameter_labels),
+      nsims = paste0("m == ", nsims)
+    )
+  
+  # Base plot filtered by max_iteration
+  p <- ggplot(df %>% filter(iteration <= max_iteration)) + 
+    theme_bw()
+  
+  if (colour_by_theta_0) {
+    p <- p + geom_line(aes(x = iteration, y = estimate, group = theta_0, colour = factor(theta_0)), lty = "dotdash") +
+      theme(legend.position = "none")
+      if (show_average) {
+        p <- p + geom_line(aes(x = iteration, y = averaged_estimate, colour = factor(theta_0)), alpha = 0.5) 
+      }
+    p <- p + scale_colour_manual(values = c("1" = "#0072B2", "2" = "#E69F00"))
+  } else {
+    p <- p + geom_line(aes(x = iteration, y = estimate, group = theta_0), lty = "dotdash") 
+      if (show_average) {
+        p <- p + geom_line(aes(x = iteration, y = averaged_estimate, group = theta_0), colour = "red", alpha = 0.5)
+      }
+  }
+  
+  
+  # Add optional horizontal lines if provided
+  if (!is.null(theta_df)) {
+    p <- p + geom_hline(data = theta_df, aes(yintercept = value), colour = "gray50", lty = "dashed")
+  }
+  if (!is.null(MAP_df)) {
+    p <- p + geom_hline(data = MAP_df, aes(yintercept = MAP), colour = "black", lty = "dashed")
+  }
+  
+  # Faceting
+  if (!is.null(H) && length(H == 1)) {
+    p <- p + facet_wrap(. ~ parameter, nrow = 1, scales = "free", labeller = label_parsed)
+  } else {
+    p <- p + facet_grid(parameter ~ nsims, scales = "free", labeller = label_parsed)
+  }
+  
+  return(p)
+}
+
+
+
 
 ggsv <- function(filename, plot, device = NULL, ...) {
   suppressWarnings({

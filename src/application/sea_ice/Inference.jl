@@ -1,114 +1,206 @@
-println("Starting estimation stage for sea-ice application...")
-
 using ArgParse
 arg_table = ArgParseSettings()
 @add_arg_table arg_table begin
 	"--quick"
 		help = "Flag controlling whether or not a computationally inexpensive run should be done."
 		action = :store_true
+  "--domain"
+		help = "The domain over which to perform inference ('full' or 'sub')"
+		arg_type = String
+		required = true
 end
-quick         = parsed_args["quick"]
+parsed_args = parse_args(arg_table)
+quick = parsed_args["quick"]
+domain = parsed_args["domain"]
+
+println("Starting estimation stage for sea-ice application over the $(domain) domain...")
 
 using NeuralEstimators
+using NeuralEstimators: estimate
 using BSON: @load
 using CSV
 using DataFrames
+using Distributions: Beta, Dirac
 using Folds
 using RData
 using Statistics: mean
 using HDF5
+using Plots
 
+include(joinpath(pwd(), "src", "EM.jl"))
 include(joinpath(pwd(), "src", "Architecture.jl"))
+include(joinpath(pwd(), "src", "HiddenPotts", "Simulation.jl")) 
+int_path = joinpath("intermediates", "application", "sea_ice", domain)
 
 # Load the data and coerce from 3D array to vector of 4D arrays
-sea_ice = RData.load(joinpath("data", "sea_ice", "sea_ice_3Darray.rds"))
+sea_ice = RData.load(joinpath(int_path, "sea_ice_3Darray.rds"));
 w, h, K = size(sea_ice) # width, height, and number of images
-sea_ice = [sea_ice[:, :, k] for k in 1:K]
-sea_ice = reshape.(sea_ice, w, h, 1, 1)
-sea_ice = copy.(sea_ice)
+sea_ice = convert(Array{Union{Missing, Float32}, 3}, sea_ice)
+sea_ice = [copy(reshape(sea_ice[:, :, k], w, h)) for k in 1:K]
+# Sanity check: sea_ice[15] |> heatmap
+# Sanity check: mean.(broadcast.(ismissing, sea_ice))
+# Sanity check: mean.(broadcast.(ismissing, sea_ice)) |> histogram
+# Sanity check: all(any.(broadcast.(ismissing, sea_ice)))
+# Sanity check: mean(any.(broadcast.(ismissing, sea_ice)))
 
-# Convert to Int eltype 
-IntMissing(x) = ismissing(x) ? x : Int(x)
-sea_ice = broadcast.(IntMissing, sea_ice)
+# Prior information 
+prior_mean = RData.load(joinpath(int_path, "prior_mean.rds")).data
+prior_lower_bound = RData.load(joinpath(int_path, "prior_lower_bound.rds"))
+prior_upper_bound = RData.load(joinpath(int_path, "prior_upper_bound.rds"))
+d = length(prior_mean)
 
-# Load the neural MAP estimator 
-p = 1
-neuralMAP = architecture(p)
-path = joinpath("intermediates", "application", "sea_ice")
-loadpath  = joinpath(pwd(), path, "NBE", "ensemble.bson")
-@load loadpath model_state
+# Load the NBE
+neuralMAP = architecture(d, prior_lower_bound, prior_upper_bound)
+load_path = joinpath(pwd(), int_path, "NBE", "ensemble.bson")
+@load load_path model_state
 Flux.loadmodel!(neuralMAP, model_state)
-neuralMAP = neuralMAP[1] # use a single NBE rather than an ensemble 
+
+# Function to construct emissions distributions, including dirac functions on 0 and 1
+betadistribution(λ::AbstractVector) = Beta(λ[1], λ[2])
+function emissiondistributions(θ)
+  d = length(θ)
+  q = (d-1)÷2
+  a = θ[2:q+1]
+  b = θ[q+2:end]
+  λ = vcat(a', b')
+  distributions = betadistribution.(eachcol(λ))
+  distributions = [distributions..., Dirac(0.0), Dirac(1.0)]
+  return distributions
+end
+
+# Conditional simulation
+function simulateconditional(
+    Z₁, θ; 
+    nsims::Integer = 1, 
+    num_iterations::Integer = 100, 
+    )
+    
+    # Argument validation
+    @assert nsims > 0 "nsims must be positive"
+    @assert num_iterations > 0 "num_iterations must be positive"
+    if ndims(Z₁) > 2 
+        @assert all(size(Z₁)[3:end] .== 1)
+    end 
+    Z₁ = Z₁[:, :]
+
+    # Complete-data case
+    if !any(ismissing.(Z₁))
+      return cat(Z₁, dims = 4)
+    end
+
+    # Construct the emissions distributions
+    distributions = emissiondistributions(θ)
+  	β = θ[1]
+
+    # Run multiple chains to get independent samples
+    Z = simulatehiddenpotts_parallel(Z₁, β, distributions; num_iterations = num_iterations, num_chains = nsims).Z[:, :, num_iterations:num_iterations, :]
+
+    return Z
+end
 
 # Construct the neural EM object
-θ₀ = [0.9] 
-simulatepottsquick(args...; kwargs...) = simulatepotts(args...; kwargs..., num_iterations = 100)
-neuralem = EM(simulatepotts, neuralMAP, θ₀)
-@elapsed neuralem(sea_ice[1])
-@elapsed neuralem(sea_ice[1:2])
+θ₀ = prior_mean 
+θ₀ = [1.0, 5.0, 2.0, 3.0, 0.5]
+burnin = 3
+neuralem = EM(simulateconditional, neuralMAP, θ₀)
 
-# Point estimates 
+# Quick test and timing for a single estimate and for compilation
+Z₁ = sea_ice[17]
+@elapsed neuralem(Z₁, burnin = burnin)
+
+# Point estimates
 println("Obtaining point estimates...")
-tm = @elapsed estimates = neuralem(sea_ice)
-tm /= length(sea_ice) # average time for a single estimate  
+tm = @elapsed estimates = neuralem(sea_ice, burnin = burnin)
 
-# Bootstrap uncertainty quantification
-println("Performing bootstrap-based uncertainty quantification...")
-B = quick ? 20 : 400 # number of bootstrap samples 
-Z = Folds.map(eachcol(estimates)) do β
-  num_states = 2 # two states (ice, no ice)
-  z = simulatepotts(w, h, num_states, β; nsims = B, thin = 10, burn = 1000) 
-  z = broadcast(x -> x .-= 1, z) # decrease state labels by 1 (for consistency with format of simulated data used during training, which starts the labels at 0)
-  z = reshape.(z, w, h, 1, 1)    # reshape to 4-dimensional array, as required by CNN architecture
-  z
-end
-# Ignoring missingness, which may be ok if missingness proportion is small
-# bs_estimates_completedata = estimateinbatches.(Ref(neuralMAP), Z)
-# bs_estimates_completedata = reduce(vcat, bs_estimates_completedata)
+# Bootstrap data sets
+println("Performing bootstrap uncertainty quantification...")
+B = quick ? 10 : 100 # number of bootstrap samples 
+Z_bs = map(eachcol(estimates)) do θ
+  # Simulate marginally
+  β = θ[1]
+  distributions = emissiondistributions(θ)
+  z = simulatehiddenpotts_parallel(w, h, β, distributions; num_iterations = 100, num_chains = B).Z
 
-# Account for missingness in bootstrap uncertainty quantification
-Z1 = deepcopy(Z)
-# Promote eltype of Z1 from Int64 to Union{T, Missing} to allow missing values 
-T = eltype(Z1[1][1])
-Z1 = broadcast.(convert, Ref(Array{Union{T, Missing}}), Z1)
-for i in 1:length(Z1)
-    for j in 1:length(Z1[i])
-        Z1[i][j] = map((z, s) -> ismissing(s) ? missing : z, Z1[i][j], sea_ice[i])
-    end
+  # Convert to vector of matrices
+  z = convert(Array{Float32}, z)
+  z = [z[:, :, b] for b in 1:B]
 end
-# We have many estimates to obtain, so initialise the algorithm with the 
-# observed data estimates and then do a short run of the EM algorithm
-bs_estimates = neuralem.(Z1, estimates, niterations = 2) 
-bs_estimates = reduce(vcat, bs_estimates)
+
+# Boostrap estimates: Ignoring missingness (okay if missingness proportion is small)
+Z = reduce(vcat, Z_bs)
+Z = cat.(Z; dims = 4)
+bs_time_complete = @elapsed bs_estimates_complete = estimate(neuralMAP, Z)
+
+# # Boostrap estimates: Account for missingness in bootstrap uncertainty quantification
+# Z1_bs = deepcopy(Z_bs)
+# # Promote eltype of Z1 from T to Union{T, Missing} to allow missing values 
+# T = eltype(Z1_bs[1][1])
+# Z1_bs = broadcast.(convert, Ref(Array{Union{T, Missing}}), Z1_bs)
+# for k in 1:K
+#     for b in 1:B
+#         Z1_bs[k][b] = map((z, s) -> ismissing(s) ? missing : z, Z1_bs[k][b], sea_ice[k])
+#     end
+# end
+# # Sanity check: Z1_bs[15][1] |> heatmap 
+# # Sanity check: sea_ice[15] |> heatmap 
+# # Initialise the algorithm with the observed-data estimates and then run the EM algorithm
+# z = reduce(vcat, Z1_bs)
+# θ₀ = repeat(estimates, inner = (1, B))
+# bs_time_missing = @elapsed bs_estimates_missing = neuralem(z, θ₀, burnin = burnin) 
 
 # Conditional simulation 
 sea_ice_complete = Folds.map(1:K) do k 
-  Z = sea_ice[k][:, :, 1, 1]
-  β = estimates[k]
-  z = simulatepotts(Z, β; nsims = B, thin = 5, burn = 200)
+  Z₁ = sea_ice[k]
+
+  # Complete-data case
+  if !any(ismissing.(Z₁))
+    z = convert(Matrix{nonmissingtype(eltype(Z₁))}, Z₁)
+    return repeat([z], B)
+  end
+
+  θ = estimates[:, k]
+  z = simulateconditional(Z₁, θ; nsims = B)
+  z = [z[:, :, 1, b] for b in 1:B]
   z
 end
+# Sanity check: sea_ice[15] |> heatmap 
+# Sanity check: sea_ice_complete[15][1] |> heatmap 
+# Sanity check: sea_ice_complete[15][2] |> heatmap 
 
-# Sea ice extent 
+# Sea-ice extent 
 sie = broadcast.(sum, sea_ice_complete)
 sie = permutedims(reduce(hcat, sie))
 
-# Inference on single missing pixels 
-idx = 17 # focus on 1995
-z = copy(sea_ice[idx][:, :, 1, 1])
-β = estimates[idx]
-z_sims = simulatepotts(z, β; nsims = B, thin = 10, burn = 500)
-z_sims = stackarrays(z_sims; merge = false)
-# Remove "sims1995.h5" if it already exists, then save the new one
-file_path = joinpath(path, "sims1995.h5")
-if isfile(file_path)
-    rm(file_path)
+# Conditional simulations, storing both Y and Z
+println("Computing predictions at missing pixels...")
+all_year = [1979, 1990, 1993, 1995, 1999, 2023]
+# all_year = 1979:2023
+for year in all_year
+  idx = year - 1978
+  dat = sea_ice[idx]
+  θ = estimates[:, idx]
+  β = θ[1]
+  distributions = emissiondistributions(θ)
+  y_sims, z_sims = simulatehiddenpotts_parallel(dat, β, distributions; num_iterations = 1000, num_chains = max(B, 100))
+  z_sims = z_sims[:, :, end, :]
+  y_sims = y_sims[:, :, end, :]
+  file_path = joinpath(int_path, "conditional_sims_$(year).h5")
+  isfile(file_path) && rm(file_path) # remove file if it already exists
+  h5write(file_path, "Z", z_sims)
+  h5write(file_path, "Y", y_sims)
+  h5write(file_path, "year", year)
+  h5write(file_path, "idx", idx)
 end
-h5write(file_path, "dataset", z_sims)
 
 # Save results 
-CSV.write(joinpath(path, "estimates.csv"), DataFrame(beta = vec(estimates), sie = mean.(eachrow(sie))))
-CSV.write(joinpath(path, "estimation_time.csv"), Tables.table([tm]), writeheader=false)
-CSV.write(joinpath(path, "bs_estimates.csv"), Tables.table(bs_estimates), writeheader=false)
-CSV.write(joinpath(path, "sie.csv"), Tables.table(sie), writeheader=false)
+CSV.write(joinpath(int_path, "estimates.csv"), Tables.table(estimates), writeheader=false)
+inference_time = DataFrame(
+    estimation_time = tm,
+    bootstrap_time_complete = bs_time_complete#,
+    #bootstrap_time_missing = bs_time_missing
+)
+CSV.write(joinpath(int_path, "inference_time.csv"), inference_time)
+CSV.write(joinpath(int_path, "bs_estimates_complete.csv"), Tables.table(bs_estimates_complete), writeheader=false)
+# CSV.write(joinpath(int_path, "bs_estimates_missing.csv"), Tables.table(bs_estimates_missing), writeheader=false)
+CSV.write(joinpath(int_path, "sie.csv"), Tables.table(sie), writeheader=false)
 
