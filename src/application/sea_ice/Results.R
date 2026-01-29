@@ -388,7 +388,6 @@ library("ggplot2")
 library("patchwork")  # for plot arrangement
 library("reshape2")   # for melting arrays
 
-
 plot_ice <- function(arr) {
   mat <- apply(arr, c(1, 2), mean)
 
