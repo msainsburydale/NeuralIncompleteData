@@ -25,7 +25,7 @@ Rscript src/application/sea_ice/Preprocessing.R
 Rscript src/application/sea_ice/Train.R $quick --domain=full
 Rscript src/application/sea_ice/Train.R $quick --domain=sub
 julia --project=. --threads=auto src/application/sea_ice/Inference.jl $quick --domain=sub
-julia --project=. --threads=64 src/application/sea_ice/Inference.jl $quick --domain=full
+julia --project=. --threads=auto src/application/sea_ice/Inference.jl $quick --domain=full
 Rscript src/application/sea_ice/Results.R
 
 # Delete extraneous files

@@ -93,7 +93,8 @@ function simulateconditional(
   	β = θ[1]
 
     # Run multiple chains to get independent samples
-    Z = simulatehiddenpotts_parallel(Z₁, β, distributions; num_iterations = num_iterations, num_chains = nsims).Z[:, :, num_iterations:num_iterations, :]
+    # Z = simulatehiddenpotts_parallel(Z₁, β, distributions; num_iterations = num_iterations, num_chains = nsims).Z[:, :, num_iterations:num_iterations, :]
+    Z = simulatehiddenpotts(Z₁, β, distributions; num_iterations = num_iterations).Z[end][:, :, :, :]
 
     return Z
 end
@@ -131,22 +132,22 @@ Z = reduce(vcat, Z_bs)
 Z = cat.(Z; dims = 4)
 bs_time_complete = @elapsed bs_estimates_complete = estimate(neuralMAP, Z)
 
-# # Boostrap estimates: Account for missingness in bootstrap uncertainty quantification
-# Z1_bs = deepcopy(Z_bs)
-# # Promote eltype of Z1 from T to Union{T, Missing} to allow missing values 
-# T = eltype(Z1_bs[1][1])
-# Z1_bs = broadcast.(convert, Ref(Array{Union{T, Missing}}), Z1_bs)
-# for k in 1:K
-#     for b in 1:B
-#         Z1_bs[k][b] = map((z, s) -> ismissing(s) ? missing : z, Z1_bs[k][b], sea_ice[k])
-#     end
-# end
-# # Sanity check: Z1_bs[15][1] |> heatmap 
-# # Sanity check: sea_ice[15] |> heatmap 
-# # Initialise the algorithm with the observed-data estimates and then run the EM algorithm
-# z = reduce(vcat, Z1_bs)
-# θ₀ = repeat(estimates, inner = (1, B))
-# bs_time_missing = @elapsed bs_estimates_missing = neuralem(z, θ₀, burnin = burnin) 
+ # Boostrap estimates: Account for missingness in bootstrap uncertainty quantification
+Z1_bs = deepcopy(Z_bs)
+# Promote eltype of Z1 from T to Union{T, Missing} to allow missing values 
+T = eltype(Z1_bs[1][1])
+Z1_bs = broadcast.(convert, Ref(Array{Union{T, Missing}}), Z1_bs)
+for k in 1:K
+    for b in 1:B
+        Z1_bs[k][b] = map((z, s) -> ismissing(s) ? missing : z, Z1_bs[k][b], sea_ice[k])
+    end
+end
+# Sanity check: Z1_bs[15][1] |> heatmap 
+# Sanity check: sea_ice[15] |> heatmap 
+# Initialise the algorithm with the observed-data estimates and then run the EM algorithm
+z = reduce(vcat, Z1_bs)
+θ₀ = repeat(estimates, inner = (1, B))
+bs_time_missing = @elapsed bs_estimates_missing = neuralem(z, θ₀, burnin = burnin) 
 
 # Conditional simulation 
 sea_ice_complete = Folds.map(1:K) do k 

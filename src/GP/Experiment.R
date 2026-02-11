@@ -52,19 +52,21 @@ source(file.path("src", "Utils.R"))
 
 parameter_labels <- c("rho" = expression(rho), "tau" = expression(tau))
 parameter_names <- names(parameter_labels)
-d <- as.integer(length(parameter_names))   # number of parameters in the model
+d <- as.integer(length(parameter_names))   
 
-# ---- Define the model: prior, data simulation, likelihood function ----
+# ---- Define the model: prior, marginal data simulation ----
 
 ## Sampling from the prior distribution
 ## K: number of samples to draw from the prior
+rho_limits <- c(0.03, 0.35)    # range parameter
+tau_limits <- c(0.01, 1)       # fine-scale variance parameter
 sampler <- function(K) { 
-  rho <- runif(K, min = 0.03, max = 0.35)
-  tau <- runif(K)
+  rho <- runif(K, min = rho_limits[1], max = rho_limits[2])
+  tau <- runif(K, min = tau_limits[1], max = tau_limits[2])
   theta <- matrix(c(rho, tau), nrow = 2, byrow = TRUE)
   return(theta)
 }
-prior_mean <- c(0.175, 0.5)
+prior_mean <- c(mean(rho_limits), mean(tau_limits))
 
 ## Marginal simulation from the statistical model
 ## theta: a matrix of parameters drawn from the prior
@@ -82,10 +84,10 @@ simulator <- function(theta, N = 64) {
   return(Z)
 }
 
-## Conditional simulation using GpGp
+# ---- Conditional simulation and MAP (MLE) estimation using Vecchia ----
 
-# Function 1: Setup (done once per y, regardless of theta)
-setup_conditional_simulation <- function(y, num_neighbours = 30, reorder = TRUE) {
+# Setup for the Vecchia approximation (done once per y, regardless of theta)
+vecchia_setup <- function(y, num_neighbours = 30, reorder = TRUE) {
   
   covfun_name <- "matern_isotropic"
   y <- drop(y)
@@ -146,7 +148,7 @@ setup_conditional_simulation <- function(y, num_neighbours = 30, reorder = TRUE)
   return(setup)
 }
 
-# Function 2: Simulation (can be called multiple times with different theta)
+# Conditional simulation (can be called multiple times with different theta)
 simulate_conditional <- function(setup, theta, nsims = 1) {
   
   rho <- theta[1]
@@ -222,41 +224,70 @@ simulate_conditional <- function(setup, theta, nsims = 1) {
 # fields::image.plot(z[, , 1, 1], zlim = zlim_range, main = "Conditional simulation 1")
 # fields::image.plot(z[, , 1, 2], zlim = zlim_range, main = "Conditional simulation 2")
 simulateconditional <- function(y, theta, nsims = 1, num_neighbours = 30, reorder = TRUE) {
-  setup <- setup_conditional_simulation(y, num_neighbours, reorder)
+  setup <- vecchia_setup(y, num_neighbours, reorder)
   simulate_conditional(setup, theta, nsims)
 }
 
-## MAP estimator using GpGp::fit_model
-MAP <- function(Z, tau_0 = 0.5, rho_0 = 0.175) {
-
-  Z <- drop(Z)
-
-  # All locations
-  N <- nrow(Z) # NB assumes square grid
-  locs <- as.matrix(expand.grid(seq(1, 0, len = N), seq(0, 1, len = N)))
-
-  # Extract observed elements and their locations
-  Z1 <- Z[which(!is.na(Z))]
-  Z1_locs <- locs[which(!is.na(Z)), ]
-
-  thetahat <- GpGp::fit_model(
-    Z1,
-    Z1_locs,
-    covfun_name = "matern_isotropic",
-    start_parms = c(1, rho_0, 1, tau_0^2),
-    fixed_parms = c(1, 3),
-    silent = TRUE,
-    m_seq = 30
+## MAP estimation
+nll_fun <- function(par, setup) {
+  log_rho <- par[1]
+  log_tau <- par[2]
+  covparms <- c(1, exp(log_rho), 1, exp(log_tau)^2)
+  
+  Linv <- vecchia_Linv(
+    covparms,
+    setup$covfun_name,
+    setup$locs_obs,
+    setup$NNarray_obs
   )
+  
+  v <- Linv_mult(Linv, setup$yord_obs, setup$NNarray_obs)
+  quad_form <- sum(v^2)
+  
+  # Extract diagonal of L^{-1}
+  # Linv[i, 1] is the diagonal entry of row i
+  diag_vals <- Linv[, 1]
+  
+  # log|Σ| = -2 * log|L^{-1}| = -2 * sum(log(diag(L^{-1})))
+  logdet_Sigma <- -2 * sum(log(abs(diag_vals)))
+  
+  # Log-likelihood (without constant)
+  ll <- -0.5 * logdet_Sigma - 0.5 * quad_form
+  
+  return(-ll)  # Return negative log-likelihood for minimization
+}
 
-  thetahat <- exp(thetahat$logparms)
-  thetahat[2] <- sqrt(thetahat[2]) # convert tau^2 to tau
-
-  # Enforce prior bounds
-  thetahat[1] <- pmin(pmax(thetahat[1], 0.03), 0.4)
-  thetahat[2] <- pmin(pmax(thetahat[2], 0), 1)
-
-  return(thetahat)
+MAP <- function (y) {
+  
+  # Initial parameters for optimization
+  par <- log(prior_mean)
+  
+  setup <- vecchia_setup(drop(y)) 
+  
+  setup_ll <-  list(
+    yord_obs = setup$yord_obs,
+    locs_obs = setup$locs_all[setup$inds1, , drop = FALSE],
+    NNarray_obs = setup$NNarray_all[setup$inds1, ],
+    covfun_name = setup$covfun_name
+  )
+  
+  optim_result <- optim(
+    par = par,
+    fn = nll_fun, 
+    setup = setup_ll, 
+    lower = log(c(rho_limits[1], tau_limits[1])),
+    upper = log(c(rho_limits[2], tau_limits[2])), 
+    method = 'L-BFGS-B',
+    control = list(parscale = c(rep(1, 2)))
+  )
+  
+  # Extract parameter estimates
+  par <- optim_result$par
+  rho_est <- exp(par[1])
+  tau_est <- exp(par[2])
+  est <- c(rho_est, tau_est)
+  
+  return(est)
 }
 
 MAP_multiple <- function(Z) {
@@ -334,7 +365,7 @@ UW_val   <- encodedata(lapply(Z_val, removedata))
 epochs <- ifelse(quick, 10, 100)
 
 ## Train the neural MAP estimator for use in the EM approach
-neuralMAP <- architecture(d, input_channels = 1L) 
+neuralMAP <- architecture(d, input_channels = 1L) #NB should explicitly enforce prior bounds
 neuralMAP <- train(
   neuralMAP,      
   theta_train = theta_train, 
@@ -346,7 +377,7 @@ neuralMAP <- train(
 )
 
 ## Train the masked neural Bayes estimator
-maskedestimator <- architecture(d, input_channels = 2L)
+maskedestimator <- architecture(d, input_channels = 2L) #NB should explicitly enforce prior bounds
 maskedestimator <- train(
   maskedestimator,     
   theta_train = theta_train, 
@@ -434,8 +465,8 @@ cat("Running masking NBE...\n")
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
 cat("Running EM NBE...\n")
-EM_MCAR <- EM_multiple(Z1_MCAR, setupconditionalsimulation = setup_conditional_simulation, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MCAR)
-EM_MNAR <- EM_multiple(Z1_MNAR, setupconditionalsimulation = setup_conditional_simulation, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MNAR)
+EM_MCAR <- EM_multiple(Z1_MCAR, setupconditionalsimulation = vecchia_setup, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MCAR)
+EM_MNAR <- EM_multiple(Z1_MNAR, setupconditionalsimulation = vecchia_setup, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MNAR)
 cat("Computing MAP estimates...\n")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
@@ -485,9 +516,13 @@ df <- rbind(MCAR_df, MNAR_df)
 write.csv(df, file.path(int_path, "Estimates", "estimates_test.csv"), row.names = F)
 
 rmse_df <- df %>%
+  anti_join(df %>% filter(parameter == "rho", truth > 0.275) %>% distinct(k), by = "k") %>% # Remove very large rho, likelihood too flat in that region and analytical MAP becomes numerically unstable
   mutate(squared_error = (estimate - truth)^2) %>%
   group_by(estimator, missingness) %>% 
-  dplyr::summarise(rmse = sqrt(mean(squared_error)), bias = mean(estimate - truth)) 
+  dplyr::summarise(
+    rmse = sqrt(mean(squared_error)),
+    bias = mean(estimate - truth)
+  )
 write.csv(rmse_df, file.path(int_path, "Estimates", "rmse.csv"), row.names = F)
 
 rmse_df <- df %>%
@@ -532,8 +567,8 @@ cat("Running masking NBE...\n")
 masked_MCAR <- estimate(maskedestimator, UW_MCAR)
 masked_MNAR <- estimate(maskedestimator, UW_MNAR)
 cat("Running EM NBE...\n")
-EM_MCAR <- EM_multiple(Z1_MCAR, setupconditionalsimulation = setup_conditional_simulation, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MCAR)
-EM_MNAR <- EM_multiple(Z1_MNAR, setupconditionalsimulation = setup_conditional_simulation, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MNAR)
+EM_MCAR <- EM_multiple(Z1_MCAR, setupconditionalsimulation = vecchia_setup, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MCAR)
+EM_MNAR <- EM_multiple(Z1_MNAR, setupconditionalsimulation = vecchia_setup, simulateconditional = simulate_conditional, estimator = neuralMAP, nsims = nsims, niterations = niterations, burn_in = burn_in, theta_0 = masked_MNAR)
 cat("Computing MAP estimates...\n")
 MAP_MCAR <- MAP_multiple(Z1_MCAR)
 MAP_MNAR <- MAP_multiple(Z1_MNAR)
@@ -607,7 +642,7 @@ df <- df %>% add_row(estimator = "ABC MAP", time = elapsed_time)
 
 # EM
 start_time <- Sys.time()
-em_result <- EM(Z1_MCAR[[1]], estimator = neuralMAP, setupconditionalsimulation = setup_conditional_simulation, simulateconditional = simulate_conditional, nsims = 30, niterations = 50, burn_in = 2, theta_0 = prior_mean)
+em_result <- EM(Z1_MCAR[[1]], estimator = neuralMAP, setupconditionalsimulation = vecchia_setup, simulateconditional = simulate_conditional, nsims = 30, niterations = 50, burn_in = 2, theta_0 = prior_mean)
 end_time <- Sys.time()
 elapsed_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
 df <- df %>% add_row(estimator = "EM_with_overhead", time = elapsed_time)
@@ -619,7 +654,7 @@ num_its <- ncol(em_result$iterates)
 Z_complete <- Z_test[[1]]
 Z_complete <- array(Z_complete, dim = c(dim(Z_complete)[1], dim(Z_complete)[2], 1, 30))
 estimation_time <- juliaLet('@belapsed estimate($estimator, $z)', estimator = neuralMAP, z = Z_complete)
-setup_time <- system.time(setup <- setup_conditional_simulation(drop(Z1_MCAR[[1]])))["elapsed"]
+setup_time <- system.time(setup <- vecchia_setup(drop(Z1_MCAR[[1]])))["elapsed"]
 condsim_time <- system.time(simulate_conditional(setup, prior_mean, nsims = 30))["elapsed"]
 total_time <- setup_time + num_its * (condsim_time + estimation_time)
 df <- df %>% add_row(estimator = "EM_without_overhead", time = total_time)

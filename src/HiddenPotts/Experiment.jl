@@ -238,7 +238,7 @@ function assessmissing(Z, θ, missingness::String, set::String)
 	println("  Running the EM NBE...")
 	θ₀ = estimate(maskedestimator, encodedata.(Z₁))
 	assessment = merge(assessment, assess(
-      Z₁ -> neuralem(Z₁, θ₀; burnin = 5, nsims = 30, use_gpu = false), # TODO implement EM for multiple data sets in a memory-safe manner (in a given iteration, do all conditional simulations in parallel; then do all estimates)
+      Z₁ -> neuralem(Z₁, θ₀; burnin = 5, nsims = 30, use_gpu = false), # TODO implement EM for multiple data sets in a more memory-safe manner (e.g., in a given iteration, all conditional simulations in parallel; then do all estimates)
 			θ, Z₁;
 			estimator_name = "EM",
 			use_gpu = false, 

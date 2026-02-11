@@ -39,8 +39,6 @@ ggsv("convergence", figure, path = img_path, width = 8.8, height = 9.4)
 
 # ---- RMSE ----
 
-#TODO check these results
-
 rmse <- data.frame()
 for (set in missingness) {
   
