@@ -1,15 +1,14 @@
-# Boolean indicating whether (TRUE) or not (FALSE) to quickly establish that the code is working properly
-quick <- identical(commandArgs(trailingOnly=TRUE)[1], "--quick")
+# Hidden Potts model (Section 3.3): approximate Bayesian computation (ABC) with summary statistics computed from the
+# data. The reference table is the training data simulated by src/HiddenPotts/SimulateData.jl (the parameters and data
+# used to train the NBEs), and the estimates are for its test and scenario data.
+#
+# Usage (from the top level of the repository, after src/HiddenPotts/SimulateData.jl):
+#   Rscript src/HiddenPotts/ABC.R
 
-## R and Julia packages for simulation and neural Bayes estimation
 suppressMessages({
   library("abc")
   library("abctools")
-  library("bayesImageS")
   library("dplyr")
-  library("NeuralEstimators")
-  library("JuliaConnectoR")
-  library("truncnorm")
   library("ggplot2")
   library("tidyr")
   library("purrr")
@@ -17,21 +16,19 @@ suppressMessages({
   library("future.apply")
   options(dplyr.summarise.inform = FALSE)
 })
-# Limit BLAS threads globally for parallel simulation
+# Limit BLAS threads globally for parallel computation
 Sys.setenv(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
-plan(multisession)
+# The number of parallel workers is min(32, half the number of cores), or the environment variable NCORES
+ncores <- as.integer(Sys.getenv("NCORES", min(32, parallel::detectCores() %/% 2)))
+plan(multisession, workers = ncores)
 source(file.path("src", "Plotting.R"))
 source(file.path("src", "Utils.R"))
-# NB first must set working directory to top-level of repo
-Sys.setenv("JULIACONNECTOR_JULIAOPTS" = "--project=. --threads=auto")
-juliaEval('using NeuralEstimators, Flux, CUDA')
-snk <- juliaEval('include(joinpath(pwd(), "src", "Architecture.jl"))')
-architecture <- juliaFun("architecture")
 
 int_path <- file.path("intermediates", "HiddenPotts")
 img_path <- file.path("img", "HiddenPotts")
-dir.create(int_path, recursive = TRUE, showWarnings = FALSE)
 dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
+
+q <- 3 # number of labels
 
 parameter_labels = c(
   "β" = expression(beta),
@@ -111,214 +108,25 @@ remove_complex_missingness <- function(Z) {
   return(Z)
 }
 
+# ---- Data simulated by src/HiddenPotts/SimulateData.jl ----
 
-# ---- Data simulation ----
-
-q <- 3      # number of labels
-n <- 64     # image size n x n
-d <- as.integer(n^2)
-K <- ifelse(quick, 1000, 25000)  # number of data sets
-burn <- 100 # Swendsen-Wang burn-in
-
-# Prior for Potts model
-beta_crit <- log(1 + sqrt(q))
-beta_max <- 1.5 
-beta <- runif(K, 0.03, beta_max) 
-
-# Priors for emission model (Gaussian)
-sample_emission_parameters <- function(K, q, m_bounds = c(-1, 1)) {
-  m_k <- seq(m_bounds[1], m_bounds[2], length.out = q)  # prior means for mu_k
-  spacing <- diff(m_k)[1]
-  
-  mu_k    <- matrix(NA, nrow = K, ncol = q)
-  sigma_k <- matrix(NA, nrow = K, ncol = q)
-  for (i in 1:K) {
-    mu_k[i, ]    <- sort(rtruncnorm(q, a = m_bounds[1], b = m_bounds[2], mean = m_k, sd = spacing * 0.2))
-    # mu_k[i, ]    <- rnorm(q, mean = m_k, sd = spacing * 0.3)
-    sigma_k[i, ] <- runif(q, min = 0.03, max = 1 / q)
+# Reads a data set of an HDF5 file written by Julia (same dimensions and element order), with rhdf5 or hdf5r
+read_h5 <- function(file, name) {
+  if (requireNamespace("rhdf5", quietly = TRUE)) return(rhdf5::h5read(file, name))
+  if (requireNamespace("hdf5r", quietly = TRUE)) {
+    f <- hdf5r::H5File$new(file, mode = "r")
+    on.exit(f$close_all())
+    return(f[[name]]$read())
   }
-  
-  list(mu_k = mu_k, sigma_k = sigma_k)
+  stop("reading HDF5 files needs the R package rhdf5 or hdf5r")
 }
-params <- sample_emission_parameters(K, q)
-mu_k <- params$mu_k
-sigma_k <- params$sigma_k
-
-# Plot the sampled means
-mu_df <- as.data.frame(mu_k)
-colnames(mu_df) <- paste0("Class_", 1:q)
-mu_long <- pivot_longer(mu_df, cols = everything(), names_to = "Class", values_to = "mu")
-ggplot(mu_long, aes(x = mu, fill = Class)) +
-  geom_histogram(position = "identity", alpha = 0.4, bins = 30) +
-  labs(x = expression(mu[k]), y = "Count") +
-  theme_minimal()
-
-# Potts setup
-mask <- matrix(1, n, n)
-neigh <- getNeighbors(mask, c(2,2,0,0))
-block <- getBlocks(mask, 2)
-
-# Hidden Potts simulation
-tm <- system.time({
-  Z <- future_lapply(1:K, function(i) {
-    be <- beta[i]
-    r  <- swNoData(be, q, neigh, block, burn)
-    labels <- matrix(max.col(r$z[-1, ]), nrow = n, ncol = n, byrow = TRUE)
-    
-    # Check number of labels (should equal q)
-    observed_classes <- sort(unique(as.vector(labels)))
-    if (length(observed_classes) != q) {
-      warning(sprintf(
-        "Only %d of %d classes observed (classes: %s) for beta = %.2f",
-        length(observed_classes), q, paste(observed_classes, collapse = ", "), be
-      ))
-    }
-    
-    # Observed field: Z ~ N(mu_k[Z], sigma_k[Z]^2)
-    mu_i    <- mu_k[i, ]
-    sigma_i <- sigma_k[i, ]
-    Z <- matrix(NA, n, n)
-    for (k in 1:q) {
-      Z[labels == k] <- rnorm(sum(labels == k), mean = mu_i[k], sd = sigma_i[k])
-    }
-    
-    Z
-  }, future.seed = TRUE)
-})
-saveRDS(tm, file = file.path(int_path, "sim_time.rds"))
-
-# --- Combine parameters ---
-theta <- rbind(t(beta), t(mu_k), t(sigma_k))
-p <- nrow(theta)
-
-# Compute (approximate) prior mean and bounds 
-prior_mean          <- rowMeans(theta)
-prior_lower_bound   <- apply(theta, 1, min)
-prior_upper_bound   <- apply(theta, 1, max)
-saveRDS(prior_mean, file = file.path(int_path, "prior_mean.rds"))
-saveRDS(prior_lower_bound, file = file.path(int_path, "prior_lower_bound.rds"))
-saveRDS(prior_upper_bound, file = file.path(int_path, "prior_upper_bound.rds"))
-
-# --- Generate datasets for multiple parameter scenarios ---
-beta_scenarios <- seq(0.4, floor(beta_max * 10) / 10, by = 0.1)
-mu_sigma_scenarios <- sample_emission_parameters(length(beta_scenarios), q)
-theta_scenarios <- rbind(
-  t(beta_scenarios),
-  t(mu_sigma_scenarios$mu_k),
-  t(mu_sigma_scenarios$sigma_k)
-)
-
-J <- ifelse(quick, 5, 50) # number of data sets per scenario
-
-# Each future worker handles one replicate j
-Z_scenarios <- future_lapply(1:J, function(j) {
-  lapply(1:ncol(theta_scenarios), function(i) {
-    r <- swNoData(theta_scenarios[1, i], q, neigh, block, burn)
-    labels <- matrix(max.col(r$z[-1, ]), nrow = n, ncol = n, byrow = TRUE)
-    
-    mu_i    <- theta_scenarios[2:(q + 1), i]
-    sigma_i <- theta_scenarios[(q + 2):(2 * q + 1), i]
-    
-    Z <- matrix(NA, n, n)
-    for (k in 1:q) {
-      Z[labels == k] <- rnorm(sum(labels == k), mean = mu_i[k], sd = sigma_i[k])
-    }
-    Z
-  })
-}, future.seed = TRUE)
-
-# Flatten to a simple list 
-Z_scenarios <- do.call(c, Z_scenarios)
-
-
-# ---- Training, validation, and test sets ----
-
-## Coerce data and parameters to required format
-Z <- lapply(Z, add_singletons)
-Z_scenarios <- lapply(Z_scenarios, add_singletons)
-
-## Partition the data into training, validation, and test sets
-K <- length(Z)
-K1 <- ceiling(0.8*K)           # size of the training set 
-K3 <- ifelse(quick, 15, 1000)  # size of the test set 
-K2 <- K - K1 - K3              # size of the validation set 
-if (K1 + K2 + K3 != length(Z)) {
-  stop("The sum of the sizes of the training, validation, and test sets does not equal the total number of data sets.")
-}
-idx <- 1:K 
-idx_train <- idx[1:K1]
-idx_val   <- idx[(K1 + 1):(K1 + K2)]
-idx_test  <- idx[(K1 + K2 + 1):K]
-
-Z_train <- Z[idx_train]
-Z_val   <- Z[idx_val]
-Z_test  <- Z[idx_test]
-
-theta_train <- theta[, idx_train, drop = F]
-theta_val   <- theta[, idx_val, drop = F]
-theta_test  <- theta[, idx_test, drop = F]
-
-# Save test set
-saveRDS(Z_test, file = file.path(int_path, "Z_test.rds"))
-saveRDS(theta_test, file = file.path(int_path, "theta_test.rds"))
-
-saveRDS(Z_scenarios, file = file.path(int_path, "Z_scenarios.rds"))
-saveRDS(theta_scenarios, file = file.path(int_path, "theta_scenarios.rds"))
-
-# ---- Construct EM NBE ----
-
-epochs <- ifelse(quick, 3, 100)
-
-## Initialize NBE with 1 input channel, then train
-estimator <- architecture(p, prior_lower_bound, prior_upper_bound, input_channels = 1L)
-estimator <- train(
-  estimator,
-  theta_train = theta_train,
-  theta_val = theta_val,
-  Z_train = Z_train,
-  Z_val = Z_val,
-  epochs = epochs,
-  savepath = file.path(int_path, "runs_EM")
-)
-
-## Load the trained NBE
-estimator <- loadstate(estimator, file.path(int_path, "runs_EM", "ensemble.bson"))
-
-## Assess the NBE
-assessment <- assess(estimator, theta_test, Z_test, estimator_names = "EM NBE")
-plotestimates(assessment$estimates %>% filter(parameter == "θ1"))
-saveRDS(rmse(assessment), file = file.path(int_path, "rmse_complete_EM-NBE.rds"))
-
-# ---- Construct masking NBE ----
-
-## Construct data sets for masking approach
-UW_train <- encodedata(lapply(Z_train, removedata))
-UW_val   <- encodedata(lapply(Z_val, removedata))
-UW_test  <- encodedata(lapply(Z_test, removedata))
-
-## Initialize NBE with 2 input channels, then train
-maskedestimator <- architecture(p, prior_lower_bound, prior_upper_bound, input_channels = 2L)
-maskedestimator <- train(
-  maskedestimator,
-  theta_train = theta_train,
-  theta_val = theta_val,
-  Z_train = UW_train,
-  Z_val = UW_val,
-  epochs = epochs,
-  savepath = file.path(int_path, "runs_masking")
-)
-
-## Load the trained estimator
-maskedestimator <- loadstate(maskedestimator, file.path(int_path, "runs_masking", "ensemble.bson"))
-
-## MB data 
-Z1_MB <- lapply(Z_test, remove_complex_missingness)
-Z1_MB <- lapply(Z1_MB, add_singletons)
-UW_MB <- encodedata(Z1_MB)
-
-assessment <- assess(maskedestimator, theta_test, UW_MB, estimator_names = "Masking NBE")
-plotestimates(assessment)
-saveRDS(rmse(assessment), file = file.path(int_path, "rmse_MB_masking.rds"))
+as_list <- function(a) lapply(seq_len(dim(a)[3]), function(k) a[, , k]) # an n × n × K array as a list of K matrices
+Z_train     <- as_list(read_h5(file.path(int_path, "training_data.h5"), "Z_train"))
+theta_train <- read_h5(file.path(int_path, "training_data.h5"), "theta_train")
+Z_test      <- as_list(read_h5(file.path(int_path, "test_data.h5"), "Z_test"))
+Z_scenarios <- as_list(read_h5(file.path(int_path, "test_data.h5"), "Z_scenarios"))
+theta_test  <- unname(as.matrix(read.csv(file.path(int_path, "theta_test.csv"), header = FALSE)))
+stopifnot(ncol(theta_train) == length(Z_train), ncol(theta_test) == length(Z_test))
 
 # ---- ABC ----
 

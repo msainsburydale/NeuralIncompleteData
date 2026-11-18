@@ -91,7 +91,7 @@ write.csv(rmse, row.names = F, file = file.path(int_path, "rmse_beta.csv"))
 # Recovery plots
 df <- dplyr::mutate_at(df, .vars = "parameter", .funs = factor, levels = names(parameter_labels), labels = parameter_labels)
 
-figure <- ggplot2::ggplot(df[sample(nrow(df)), ] %>% filter(missingness == "MCAR")) + 
+figure <- ggplot2::ggplot(df[sample(nrow(df)), ] %>% filter(missingness == "MB")) + 
   ggplot2::geom_point(ggplot2::aes(x=truth, y = estimate, colour  = estimator), alpha = 0.6, size = 0.4) + 
   ggplot2::geom_abline(colour = "black", linetype = "dashed") +
   ggh4x::facet_grid2(estimator~parameter, scales = "free", independent = "y", labeller = label_parsed) + 

@@ -12,6 +12,7 @@ m = 150
 
 using NeuralEstimators
 using NeuralEstimators: estimate
+using Flux
 using BenchmarkTools
 using BSON: @load
 using DelimitedFiles

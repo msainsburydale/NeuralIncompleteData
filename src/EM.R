@@ -143,41 +143,156 @@ EM_multiple <- function(Z1, estimator, theta_0, ...) {
   return(thetahat)
 }
 
-# Helper function for visualizing EM iterates
-run_EM <- function(Z1) {
+# ---- Batched neural EM ----
+
+# Lock-step neural EM for many data sets at once: the R counterpart of batched_em() in src/EM.jl.
+#
+# In each EM iteration, the active data sets are processed in chunks of `chunksize`: the conditional simulations of a
+# chunk are run in parallel on the workers of the cluster `cl` (or in this R process if `cl` is NULL), and the neural
+# MAP estimator is then applied to the whole chunk with a single call to Julia. Each worker of `cl` keeps the
+# set-up objects (orderings, neighbour sets) of the data sets assigned to it, so that these are computed and sent
+# once. The convergence assessment is identical to that of batched_em() (and NeuralEstimators.EM): with θ̄ₗ the
+# average of the estimates from iteration burn_in to iteration l, a data set has converged once
+# max_i |θ̄ₗ₊₁,ᵢ − θ̄ₗ,ᵢ| / (|θ̄ₗ,ᵢ| + ϵ) < tol for nconsecutive consecutive iterations, after which it leaves the batch.
+#
+# Workers must have the functions setupconditionalsimulation and simulateconditional (given by name), e.g., via
+# clusterEvalQ(cl, source("src/GP/Simulation.R")).
+#
+# Returns a list with: estimates (d × K matrix), iterates (list of d × (l+1) matrices, including theta_0),
+# niterations, converged, and timings (seconds spent in set-up, conditional simulation, and MAP estimation).
+# Functions run on the workers of batched_EM(). They are defined at the top level so that, when serialised, they do
+# not carry the data of the calling frame with them.
+.em_worker_setup <- function(job, setupfun) {
+  f <- get(setupfun)
+  assign(".em_setups", setNames(lapply(job$Z, f), job$ks), envir = globalenv())
+  NULL
+}
+.em_worker_simulate <- function(job, simfun, nsims) {
+  sim <- get(simfun)
+  setups <- get(".em_setups", envir = globalenv())
+  lapply(seq_along(job$ks), function(i) sim(setups[[as.character(job$ks[i])]], job$thetas[, i], nsims = nsims))
+}
+
+batched_EM <- function(Z1, estimator, theta_0,
+                       setupconditionalsimulation = "vecchia_setup",
+                       simulateconditional = "simulate_conditional",
+                       cl = NULL,
+                       nsims = 30, niterations = 50, burn_in = 5, tol = 0.01, nconsecutive = 3,
+                       chunksize = 256, verbose = FALSE) {
+
+  stopifnot(burn_in >= 0, burn_in < niterations, chunksize > 0)
+  K <- length(Z1)
+  if (is.vector(theta_0)) theta_0 <- matrix(rep(theta_0, K), ncol = K)
+  stopifnot(ncol(theta_0) == K)
+  d <- nrow(theta_0)
+
+  W <- if (is.null(cl)) 1L else length(cl)
+  worker <- ((seq_len(K) - 1L) %% W) + 1L # worker holding the set-up of each data set
+
+  # NB the timers below use gcFirst = FALSE: by default, system.time() first runs a full garbage collection, which
+  # (outside the timed expression, but inside the EM) would cost about 0.1 s per call.
+
+  # Set-up for conditional simulation, once per data set
+  t_setup <- system.time({
+    if (is.null(cl)) {
+      setups <- lapply(Z1, get(setupconditionalsimulation))
+    } else {
+      jobs <- lapply(seq_len(W), function(w) list(ks = which(worker == w), Z = Z1[worker == w]))
+      parallel::clusterApply(cl, jobs, .em_worker_setup, setupfun = setupconditionalsimulation)
+    }
+  }, gcFirst = FALSE)[["elapsed"]]
+
+  simulate_chunk <- function(chunk, thetas) {
+    if (is.null(cl)) {
+      sim <- get(simulateconditional)
+      return(lapply(seq_along(chunk), function(i) sim(setups[[chunk[i]]], thetas[, i], nsims = nsims)))
+    }
+    w <- worker[chunk]
+    jobs <- lapply(seq_len(W), function(v) list(ks = chunk[w == v], thetas = thetas[, w == v, drop = FALSE]))
+    out <- parallel::clusterApply(cl, jobs, .em_worker_simulate, simfun = simulateconditional, nsims = nsims)
+    Z <- vector("list", length(chunk))
+    for (v in seq_len(W)) Z[w == v] <- out[[v]]
+    Z
+  }
+
+  theta_all <- lapply(seq_len(K), function(k) matrix(theta_0[, k], ncol = 1))
+  bar_theta <- vector("list", K)
+  counter <- integer(K)
+  converged <- logical(K)
+  done <- logical(K)
+  nits <- integer(K)
+  t_sim <- 0
+  t_est <- 0
+
+  active <- seq_len(K)
+  for (l in seq_len(niterations)) {
+    if (length(active) == 0) break
+    for (chunk in split(active, ceiling(seq_along(active) / chunksize))) {
+
+      thetas <- sapply(chunk, function(k) theta_all[[k]][, ncol(theta_all[[k]])])
+      thetas <- matrix(thetas, nrow = d)
+
+      # Conditional simulation, in parallel over data sets
+      t_sim <- t_sim + system.time(Z <- simulate_chunk(chunk, thetas), gcFirst = FALSE)[["elapsed"]]
+
+      # MAP estimation: one call for the chunk
+      t_est <- t_est + system.time(thetahat <- estimate(estimator, Z), gcFirst = FALSE)[["elapsed"]]
+      thetahat <- matrix(thetahat, nrow = d)
+
+      # Convergence assessment (identical to batched_em in src/EM.jl)
+      for (i in seq_along(chunk)) {
+        k <- chunk[i]
+        theta_all[[k]] <- cbind(theta_all[[k]], thetahat[, i])
+        nits[k] <- l
+        if (l > burn_in) {
+          b <- rowMeans(theta_all[[k]][, (burn_in + 1):ncol(theta_all[[k]]), drop = FALSE])
+          if (l > burn_in + 1 && max(abs(b - bar_theta[[k]]) / (abs(bar_theta[[k]]) + .Machine$double.eps)) < tol) {
+            counter[k] <- counter[k] + 1
+            if (counter[k] == nconsecutive) converged[k] <- done[k] <- TRUE
+          } else {
+            counter[k] <- 0
+          }
+          bar_theta[[k]] <- b
+        }
+      }
+    }
+    active <- active[!done[active]]
+    if (verbose) cat(sprintf("EM iteration %d: %d of %d data sets still active (set-up %.1f s, simulation %.1f s, estimation %.1f s)\n",
+                             l, length(active), K, t_setup, t_sim, t_est))
+  }
+  if (verbose && !all(converged)) warning(sprintf("The EM algorithm failed to converge for %d of %d data sets", sum(!converged), K))
+
+  # Free the set-up objects held by the workers
+  if (!is.null(cl)) parallel::clusterEvalQ(cl, rm(list = ".em_setups", envir = globalenv()))
+
+  estimates <- sapply(seq_len(K), function(k) if (is.null(bar_theta[[k]])) theta_all[[k]][, ncol(theta_all[[k]])] else bar_theta[[k]])
+  list(
+    estimates = matrix(estimates, nrow = d),
+    iterates = theta_all,
+    niterations = nits,
+    converged = converged,
+    timings = c(setup = t_setup, simulation = t_sim, estimation = t_est)
+  )
+}
+
+# Helper function for visualizing EM iterates: runs the EM algorithm for one incomplete data set Z1 from each initial
+# value in theta_0 (a list) and each Monte Carlo sample size in all_nsims, with a negligible tolerance
+run_EM <- function(Z1, estimator, theta_0, all_nsims = list(1, 10, 30), parameter_names, burn_in = 10, niterations = 100, ...) {
   dfs <- lapply(seq_along(theta_0), function(i) {
-    theta0 <- theta_0[[i]]
-    burn_in <- 10
-    
     do.call(rbind, lapply(all_nsims, function(nsims) {
-      res <- EM(
-        Z1, 
-        estimator = neuralMAP, 
-        simulateconditional = simulateconditional, 
-        theta_0 = theta0, 
-        verbose = FALSE, 
-        burn_in = burn_in,
-        tol = 0.0000001,
-        nsims = nsims,
-        niterations = 100
-      )
-      
-      estimates <- res$iterates  
-      
-      # Compute post–burn-in running means for each parameter
+      res <- batched_EM(list(Z1), estimator, theta_0[[i]], nsims = nsims, burn_in = burn_in,
+                        tol = 1e-7, niterations = niterations, ...)
+      estimates <- res$iterates[[1]]
+
+      # Post–burn-in running means for each parameter
       averaged_estimates <- apply(estimates, 1, function(param_values) {
         n <- length(param_values)
         avg <- rep(NA, n)
-        if (n > burn_in) {
-          for (t in (burn_in+1):n) {
-            avg[t] <- mean(param_values[(burn_in+1):t])
-          }
-        }
+        if (n > burn_in) for (t in (burn_in + 1):n) avg[t] <- mean(param_values[(burn_in + 1):t])
         avg
       })
-      
-      # Convert to long data frame
-      df <- data.frame(
+
+      data.frame(
         iteration = rep(1:ncol(estimates), each = nrow(estimates)),
         parameter = rep(parameter_names, times = ncol(estimates)),
         estimate = as.vector(estimates),
@@ -185,10 +300,7 @@ run_EM <- function(Z1) {
         theta_0 = i,
         nsims = nsims
       )
-      
-      df
     }))
   })
-  df <- do.call(rbind, dfs)
-  return(df)
+  do.call(rbind, dfs)
 }

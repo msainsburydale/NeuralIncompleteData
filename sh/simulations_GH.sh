@@ -20,11 +20,31 @@ else
     exit 1
 fi
 
-# Train the NBEs and assess the neural estimators with missing data
+if [[ -z "${TRAIN+x}" ]]; then
+  echo "Do you wish to retrain the neural networks (y), or use the trained networks included in the repository (n)? (y/n)"
+  read TRAIN
+fi
+
+if ! [[ $TRAIN == "y" || $TRAIN == "Y" || $TRAIN == "n" || $TRAIN == "N" ]]; then
+    echo "Please re-run and type y or n"
+    exit 1
+fi
+
+# Train the NBEs (this also computes the reference table of ABC), unless the trained networks included in the
+# repository are used
+if [[ $TRAIN == "y" || $TRAIN == "Y" ]]; then
+  julia --threads=auto --project=. src/GH/Train.jl $quick
+fi
+
+# Assess the estimators with missing data
 julia --threads=auto --project=. src/GH/Experiment.jl $quick
 
-# ABC
-OPENBLAS_NUM_THREADS=1 Rscript src/GH/ABC.R
+# ABC, whose reference table (the summary statistics of the training data) is computed by src/GH/Train.jl
+if [[ -f intermediates/GH/ABC/sumstats_train.csv ]]; then
+  OPENBLAS_NUM_THREADS=1 Rscript src/GH/ABC.R
+else
+  echo "Skipping ABC: its reference table (intermediates/GH/ABC/sumstats_train.csv) is computed by src/GH/Train.jl, which runs when the networks are retrained"
+fi
 
 # Generate results
 Rscript src/GH/Results.R

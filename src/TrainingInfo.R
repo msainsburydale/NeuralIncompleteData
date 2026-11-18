@@ -54,7 +54,7 @@ all_risk <- map_dfr(names(models), function(model) {
     method_dir <- file.path(int_path, paste0("runs_", method))
     if (!dir.exists(method_dir)) return(NULL)
     
-    run_dirs <- dir_ls(method_dir, type = "directory")
+    run_dirs <- dir_ls(method_dir, type = "directory", regexp = "estimator\\d+_L[01]$") # not estimator<i>/, which holds MAP_estimator.bson
     
     run_info <- tibble(run_dir = run_dirs) %>%
       mutate(

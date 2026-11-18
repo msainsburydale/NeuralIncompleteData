@@ -2,3 +2,27 @@
 *
 # Except this file
 !.gitignore
+
+# ...and the trained networks (best_estimator.bson), with the small files needed to use them without retraining (see
+# README.md): the prior summaries of the hidden Potts and sea-ice networks, and the ABC reference table of the GP study
+!*/
+!/GP/runs_EM/best_estimator.bson
+!/GP/runs_masking/best_estimator.bson
+!/GP/ABC/sumstats_train.rds
+!/GP/ABC/sumstats_model.rds
+!/GP/ABC/theta_train.rds
+!/HiddenPotts/runs_EM/best_estimator.bson
+!/HiddenPotts/runs_masking/best_estimator.bson
+!/HiddenPotts/prior_mean.csv
+!/HiddenPotts/prior_lower_bound.csv
+!/HiddenPotts/prior_upper_bound.csv
+!/application/sea_ice/full/NBE/best_estimator.bson
+!/application/sea_ice/full/prior_mean.csv
+!/application/sea_ice/full/prior_lower_bound.csv
+!/application/sea_ice/full/prior_upper_bound.csv
+!/application/sea_ice/sub/NBE/best_estimator.bson
+!/application/sea_ice/sub/prior_mean.csv
+!/application/sea_ice/sub/prior_lower_bound.csv
+!/application/sea_ice/sub/prior_upper_bound.csv
+!/GH/runs_EM/best_estimator.bson
+!/GH/runs_masking/best_estimator.bson

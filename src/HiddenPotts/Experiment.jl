@@ -1,28 +1,31 @@
 using NeuralEstimators
 using NeuralEstimators: estimate
 using BenchmarkTools
-using BSON: @load
 using CSV
-using CUDA
+using CUDA, cuDNN # cuDNN: Flux convolutions on NVIDIA GPUs
 using DataFrames
 using Distributions: Normal
+using DelimitedFiles
+using HDF5
 using Random: seed!
-using RData
 using StatsBase
+using Statistics: median
 using LinearAlgebra
+# NNlib parallelises convolutions over images with Julia threads, and the convolution for each image calls BLAS:
+# a multithreaded BLAS then oversubscribes the CPU (CNN forward passes ≈10–40× slower on a 10-core machine)
+Threads.nthreads() > 1 && BLAS.set_num_threads(1)
 
 include(joinpath(pwd(), "src", "Architecture.jl"))
+include(joinpath(pwd(), "src", "HiddenPotts", "Simulation.jl"))
 include(joinpath(pwd(), "src", "EM.jl"))
-include(joinpath(pwd(), "src", "HiddenPotts", "Simulation.jl")) 
 int_path = joinpath("intermediates", "HiddenPotts")
 
-# Load parameters and data 
-θ_test  = RData.load(joinpath(int_path, "theta_test.rds"))
-θ_scenarios = RData.load(joinpath(int_path, "theta_scenarios.rds"))
-Z_test = RData.load(joinpath(int_path, "Z_test.rds"))
-Z_scenarios = RData.load(joinpath(int_path, "Z_scenarios.rds"))
-Z_scenarios = broadcast.(Float32, Z_scenarios)
-Z_test = broadcast.(Float32, Z_test)
+# Load the parameters and data simulated by src/HiddenPotts/SimulateData.jl
+θ_test = readdlm(joinpath(int_path, "theta_test.csv"), ',')
+θ_scenarios = readdlm(joinpath(int_path, "theta_scenarios.csv"), ',')
+Z_test, Z_scenarios = h5open(joinpath(int_path, "test_data.h5")) do f
+    as_datasets(read(f, "Z_test")), as_datasets(read(f, "Z_scenarios"))
+end
 
 # Number of parameters to estimate
 d = size(θ_test, 1)
@@ -34,57 +37,41 @@ q = (d - 1) ÷ 2
 parameter_names = ["β"] ∪ "μ" .* string.(1:q) ∪ "σ" .* string.(1:q) 
 
 # Prior information 
-prior_mean = RData.load(joinpath(int_path, "prior_mean.rds"))
-prior_lower_bound = RData.load(joinpath(int_path, "prior_lower_bound.rds"))
-prior_upper_bound = RData.load(joinpath(int_path, "prior_upper_bound.rds"))
+prior_mean = vec(readdlm(joinpath(int_path, "prior_mean.csv"), ','))
+prior_lower_bound = vec(readdlm(joinpath(int_path, "prior_lower_bound.csv"), ','))
+prior_upper_bound = vec(readdlm(joinpath(int_path, "prior_upper_bound.csv"), ','))
 
 # ---- EM NBE ----
 
+# The trained ensembles are stored as best_estimator.bson. The networks are moved to the GPU (if there is one) once:
+# batched_em and estimate then use them there without copying them, so the timings below do not include copying the
+# weights to the GPU.
 neuralMAP = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 1)
-loadpath  = joinpath(pwd(), int_path, "runs_EM", "ensemble.bson")
-@load loadpath model_state
-Flux.loadmodel!(neuralMAP, model_state)
+neuralMAP = loadestimator(neuralMAP, joinpath(pwd(), int_path, "runs_EM"))
+neuralMAP = Flux.gpu_device()(neuralMAP)
 
-function simulateconditional(
-    Z₁, θ; 
-    nsims::Integer = 1, 
-    num_iterations::Integer = 50, 
-    )
-    
-    # θ = cpu(θ)    
+# β and the emission distributions from θ = (β, μ₁, …, μ_q, σ₁, …, σ_q)
+function emissions(θ)
+    d = length(θ)
+    q = (d - 1) ÷ 2
+    β = θ[1]
+    μ = θ[2:(q + 1)]
+    σ = θ[(q + 2):end]
+    return β, [Normal(μ[k], σ[k]) for k in 1:q]
+end
 
-    # Argument validation
-    @assert nsims > 0 "nsims must be positive"
-    @assert num_iterations > 0 "num_iterations must be positive"
-    if ndims(Z₁) > 2 
-        @assert all(size(Z₁)[3:end] .== 1)
-    end 
-    Z₁ = Z₁[:, :]
-
-    # Construct the emmisions distributions
-  	d = length(θ)
-  	q = (d-1)÷2
-  	β = θ[1]
-  	μ = θ[2:q+1]
-  	σ = θ[q+2:end]
-    λ = vcat(μ', σ')
-    distribution(λ::AbstractVector) = Normal(λ[1], λ[2])
-    distributions = distribution.(eachcol(λ))
-
-    # Run multiple chains to get independent samples
-    Z = simulatehiddenpotts_parallel(Z₁, β, distributions; num_iterations = num_iterations, num_chains = nsims).Z[:, :, num_iterations:num_iterations, :]
-
-    return Z
-end 
-θ₀ = prior_mean
-neuralem = EM(simulateconditional, neuralMAP, θ₀)
+# Conditional simulator for the neural EM algorithm (see batched_em in src/EM.jl): 30 persistent chains per data set,
+# initialised and run for 50 iterations in the first EM iteration, then advanced by 5 iterations per EM iteration;
+# each iteration is a Swendsen–Wang sweep followed by a chequerboard Gibbs sweep. The chains run on the GPU (if there
+# is one), where the missing values are also drawn, so that the completed data never leave the GPU.
+backend = CUDA.functional() ? CUDABackend() : nothing
+sim = HiddenPottsEMSimulator(emissions; nsims = 30, sweeps_init = 50, sweeps_warm = 5, sw_every = 1, backend = backend)
 
 # ---- Masking NBE ----
 
 maskedestimator = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 2)
-loadpath  = joinpath(pwd(), int_path, "runs_masking", "ensemble.bson")
-@load loadpath model_state
-Flux.loadmodel!(maskedestimator, model_state)
+maskedestimator = loadestimator(maskedestimator, joinpath(pwd(), int_path, "runs_masking"))
+maskedestimator = Flux.gpu_device()(maskedestimator)
 
 # ---- EM convergence ----
 
@@ -97,7 +84,7 @@ Z₁ = removedata(Z_test[closest], 0.2)
 
 prior_range = prior_upper_bound - prior_lower_bound
 all_θ₀ = [prior_lower_bound + 0.05 * prior_range, prior_upper_bound - 0.05 * prior_range]
-df = run_EM(neuralem, Z₁, all_θ₀; parameter_names = parameter_names)
+df = run_EM(sim, neuralMAP, Z₁, all_θ₀; parameter_names = parameter_names)
 df_theta = DataFrame(parameter = parameter_names, value = θ)
 CSV.write(joinpath(int_path, "EM_iterates.csv"), df)
 CSV.write(joinpath(int_path, "EM_iterates_truth.csv"), df_theta)
@@ -112,11 +99,11 @@ df = DataFrame(estimator = [], time = [])
 Z₁ = removedata(Z_test[1], 0.2)
 
 # Masking 
-t = @belapsed θ₀ = estimate(maskedestimator, encodedata(Z₁))
+t = @belapsed estimate(maskedestimator, encodedata(Z₁))
 append!(df, DataFrame(estimator = "masking", time = t))
 
-# EM
-t += @belapsed neuralem(Z₁; burnin = 5, niterations = 50, nsims = 30)
+# EM, started from the prior mean
+t = @belapsed batched_em($sim, $neuralMAP, $Z₁, $prior_mean; burnin = 5, niterations = 50)
 append!(df, DataFrame(estimator = "EM", time = t))
 
 CSV.write(joinpath(int_path, "runtime_single_estimate.csv"), df)
@@ -151,52 +138,7 @@ function remove_quarter_circle(Z)
     return data[:, :, :, :]
 end
 
-function remove_complex_missingness(Z)
-    n_rows, n_cols = size(Z)[1:2]
-
-    # Midpoints
-    row_mid = n_rows ÷ 2
-    col_mid = n_cols ÷ 2
-
-    # Quarter-circle radius
-    radius = min(row_mid, n_cols - col_mid)
-
-    # Storage for missing indices
-    indices_to_remove = Set{Tuple{Int,Int}}()
-
-    # --- Quarter circle ---
-    for i in 1:row_mid  # Loop through the top half rows
-        for j in col_mid:n_cols  # Loop through the right half columns
-            # Calculate the distance from the top-right corner
-            dist = sqrt((i - 1)^2 + (j - n_cols)^2)
-
-            # If distance is less than or equal to the radius, mark for removal
-            if dist <= radius
-                push!(indices_to_remove, (i, j))  
-            end
-        end
-    end
-
-    # --- Ellipse-shaped missing region in bottom-left ---
-    for i in row_mid+1:n_rows
-        for j in 1:col_mid
-            # Ellipse centered at bottom-left
-            di = (i - n_rows)^2 / (0.3n_rows)^2
-            dj = (j - 1)^2 / (0.5n_cols)^2
-            if di + dj <= 1.0
-                push!(indices_to_remove, (i, j))
-            end
-        end
-    end
-
-    # --- Apply missingness ---
-    Z₁ = Array{Union{Missing, eltype(Z)}}(Z)
-    for (i, j) in indices_to_remove
-        Z₁[i, j, :, :] .= missing
-    end
-
-    return Z₁
-end
+# remove_complex_missingness (the MICB pattern) is in src/HiddenPotts/Simulation.jl
 
 function assessmissing(Z, θ, missingness::String, set::String)
 
@@ -236,16 +178,15 @@ function assessmissing(Z, θ, missingness::String, set::String)
 	)
 
 	println("  Running the EM NBE...")
-	θ₀ = estimate(maskedestimator, encodedata.(Z₁))
-	assessment = merge(assessment, assess(
-      Z₁ -> neuralem(Z₁, θ₀; burnin = 5, nsims = 30, use_gpu = false), # TODO implement EM for multiple data sets in a more memory-safe manner (e.g., in a given iteration, all conditional simulations in parallel; then do all estimates)
-			θ, Z₁;
-			estimator_name = "EM",
-			use_gpu = false, 
-			parameter_names = parameter_names
-		))
+	θ₀ = prior_mean # the EM algorithm starts from the prior mean, as in Section 3.1 of the paper
+	# All data sets are processed in lock-step: in each EM iteration, the chains of a chunk of data sets are advanced on
+	# the GPU (one data set after another; on the CPU, in parallel over threads), and the MAP estimator is applied to the
+	# chunk's completed data in a single call
+	t = @elapsed em = batched_em(sim, neuralMAP, Z₁, θ₀; burnin = 5)
+	println("  EM iterations: median $(median(em.niterations)), maximum $(maximum(em.niterations)); converged: $(count(em.converged)) of $(length(em.converged)); time: simulation $(round(em.timings.simulation, digits = 1)) s, estimation $(round(em.timings.estimation, digits = 1)) s")
+	assessment = merge(assessment, assess(θ, em.estimates; estimator_name = "EM", parameter_names = parameter_names, runtime = t))
 
-	CSV.write(joinpath(int_path, "estimates_$(missingness)_$(set).csv"), assessment.df)
+	CSV.write(joinpath(int_path, "estimates_$(missingness)_$(set).csv"), assessment.estimates)
 
 	return assessment
 end

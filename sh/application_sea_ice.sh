@@ -20,10 +20,22 @@ else
     exit 1
 fi
 
+if [[ -z "${TRAIN+x}" ]]; then
+  echo "Do you wish to retrain the neural networks (y), or use the trained networks included in the repository (n)? (y/n)"
+  read TRAIN
+fi
+
+if ! [[ $TRAIN == "y" || $TRAIN == "Y" || $TRAIN == "n" || $TRAIN == "N" ]]; then
+    echo "Please re-run and type y or n"
+    exit 1
+fi
+
 # Run scripts
 Rscript src/application/sea_ice/Preprocessing.R
-Rscript src/application/sea_ice/Train.R $quick --domain=full
-Rscript src/application/sea_ice/Train.R $quick --domain=sub
+if [[ $TRAIN == "y" || $TRAIN == "Y" ]]; then # otherwise, the trained networks included in the repository are used
+  julia --project=. --threads=auto src/application/sea_ice/Train.jl $quick --domain=full
+  julia --project=. --threads=auto src/application/sea_ice/Train.jl $quick --domain=sub
+fi
 julia --project=. --threads=auto src/application/sea_ice/Inference.jl $quick --domain=sub
 julia --project=. --threads=auto src/application/sea_ice/Inference.jl $quick --domain=full
 Rscript src/application/sea_ice/Results.R

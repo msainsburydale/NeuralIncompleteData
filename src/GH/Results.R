@@ -57,8 +57,8 @@ write.csv(rmse, row.names = F, file = file.path(img_path, "rmse.csv"))
 
 loadestimates <- function(type) {
   df <- file.path(int_path, paste0("estimates_", type, "_scenarios.csv")) %>% read.csv
-  abc_df <- file.path(int_path, "ABC", paste0("estimates_", type, "_scenarios.csv")) %>% read.csv
-  df <- rbind(df, abc_df)
+  abc_file <- file.path(int_path, "ABC", paste0("estimates_", type, "_scenarios.csv")) # written by src/GH/ABC.R, if it ran
+  if (file.exists(abc_file)) df <- rbind(df, read.csv(abc_file))
   df$missingness <- type
   df
 }

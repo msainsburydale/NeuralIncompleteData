@@ -17,19 +17,24 @@ println("Starting estimation stage for sea-ice application over the $(domain) do
 
 using NeuralEstimators
 using NeuralEstimators: estimate
-using BSON: @load
+using CUDA, cuDNN # cuDNN: Flux convolutions on NVIDIA GPUs
 using CSV
 using DataFrames
 using Distributions: Beta, Dirac
 using Folds
+using DelimitedFiles
 using RData
 using Statistics: mean
 using HDF5
 using Plots
+using LinearAlgebra: BLAS
+# NNlib parallelises convolutions over images with Julia threads, and the convolution for each image calls BLAS:
+# a multithreaded BLAS then oversubscribes the CPU (CNN forward passes ≈10–40× slower on a 10-core machine)
+Threads.nthreads() > 1 && BLAS.set_num_threads(1)
 
-include(joinpath(pwd(), "src", "EM.jl"))
 include(joinpath(pwd(), "src", "Architecture.jl"))
-include(joinpath(pwd(), "src", "HiddenPotts", "Simulation.jl")) 
+include(joinpath(pwd(), "src", "HiddenPotts", "Simulation.jl"))
+include(joinpath(pwd(), "src", "EM.jl"))
 int_path = joinpath("intermediates", "application", "sea_ice", domain)
 
 # Load the data and coerce from 3D array to vector of 4D arrays
@@ -44,16 +49,16 @@ sea_ice = [copy(reshape(sea_ice[:, :, k], w, h)) for k in 1:K]
 # Sanity check: mean(any.(broadcast.(ismissing, sea_ice)))
 
 # Prior information 
-prior_mean = RData.load(joinpath(int_path, "prior_mean.rds")).data
-prior_lower_bound = RData.load(joinpath(int_path, "prior_lower_bound.rds"))
-prior_upper_bound = RData.load(joinpath(int_path, "prior_upper_bound.rds"))
+prior_mean = vec(readdlm(joinpath(int_path, "prior_mean.csv"), ',')) # written by src/application/sea_ice/Train.jl
+prior_lower_bound = vec(readdlm(joinpath(int_path, "prior_lower_bound.csv"), ','))
+prior_upper_bound = vec(readdlm(joinpath(int_path, "prior_upper_bound.csv"), ','))
 d = length(prior_mean)
 
-# Load the NBE
+# Load the NBE (stored as best_estimator.bson), and move it to the GPU (if there is one) once: batched_em and estimate
+# then use it there without copying it
 neuralMAP = architecture(d, prior_lower_bound, prior_upper_bound)
-load_path = joinpath(pwd(), int_path, "NBE", "ensemble.bson")
-@load load_path model_state
-Flux.loadmodel!(neuralMAP, model_state)
+neuralMAP = loadestimator(neuralMAP, joinpath(pwd(), int_path, "NBE"))
+neuralMAP = Flux.gpu_device()(neuralMAP)
 
 # Function to construct emissions distributions, including dirac functions on 0 and 1
 betadistribution(λ::AbstractVector) = Beta(λ[1], λ[2])
@@ -85,33 +90,36 @@ function simulateconditional(
 
     # Complete-data case
     if !any(ismissing.(Z₁))
-      return cat(Z₁, dims = 4)
+      z = convert(Matrix{nonmissingtype(eltype(Z₁))}, Z₁)
+      return repeat(reshape(z, size(z)..., 1, 1), 1, 1, 1, nsims)
     end
 
     # Construct the emissions distributions
     distributions = emissiondistributions(θ)
   	β = θ[1]
 
-    # Run multiple chains to get independent samples
-    # Z = simulatehiddenpotts_parallel(Z₁, β, distributions; num_iterations = num_iterations, num_chains = nsims).Z[:, :, num_iterations:num_iterations, :]
-    Z = simulatehiddenpotts(Z₁, β, distributions; num_iterations = num_iterations).Z[end][:, :, :, :]
-
-    return Z
+    # Run nsims independent chains: array of dimension w × h × 1 × nsims
+    return simulatehiddenpotts(Z₁, β, distributions; nchains = nsims, num_iterations = num_iterations).Z
 end
 
-# Construct the neural EM object
+# Conditional simulator for the neural EM algorithm (see batched_em in src/EM.jl): one persistent chain per data set,
+# initialised and run for 100 iterations in the first EM iteration, then advanced by 10 iterations per EM iteration.
+# The chains run on the GPU (if there is one), where the missing values are also drawn, so that the completed data
+# never leave the GPU.
+backend = CUDA.functional() ? CUDABackend() : nothing
+sim = HiddenPottsEMSimulator(θ -> (θ[1], emissiondistributions(θ)); nsims = 1, sweeps_init = 100, sweeps_warm = 10, sw_every = 1, backend = backend)
+
 θ₀ = prior_mean 
 θ₀ = [1.0, 5.0, 2.0, 3.0, 0.5]
 burnin = 3
-neuralem = EM(simulateconditional, neuralMAP, θ₀)
 
 # Quick test and timing for a single estimate and for compilation
 Z₁ = sea_ice[17]
-@elapsed neuralem(Z₁, burnin = burnin)
+@elapsed batched_em(sim, neuralMAP, Z₁, θ₀; burnin = burnin)
 
 # Point estimates
 println("Obtaining point estimates...")
-tm = @elapsed estimates = neuralem(sea_ice, burnin = burnin)
+tm = @elapsed estimates = batched_em(sim, neuralMAP, sea_ice, θ₀; burnin = burnin).estimates
 
 # Bootstrap data sets
 println("Performing bootstrap uncertainty quantification...")
@@ -120,11 +128,11 @@ Z_bs = map(eachcol(estimates)) do θ
   # Simulate marginally
   β = θ[1]
   distributions = emissiondistributions(θ)
-  z = simulatehiddenpotts_parallel(w, h, β, distributions; num_iterations = 100, num_chains = B).Z
+  z = simulatehiddenpotts(w, h, β, distributions; nchains = B, num_iterations = 100).Z
 
   # Convert to vector of matrices
   z = convert(Array{Float32}, z)
-  z = [z[:, :, b] for b in 1:B]
+  z = [z[:, :, 1, b] for b in 1:B]
 end
 
 # Boostrap estimates: Ignoring missingness (okay if missingness proportion is small)
@@ -144,10 +152,13 @@ for k in 1:K
 end
 # Sanity check: Z1_bs[15][1] |> heatmap 
 # Sanity check: sea_ice[15] |> heatmap 
-# Initialise the algorithm with the observed-data estimates and then run the EM algorithm
+# Initialise the algorithm with the observed-data estimates and then run the EM algorithm. The K × B bootstrap data
+# sets are processed in groups of 500: on the GPU, the chains of a data set over the full domain take about 5 MB (with
+# the Swendsen–Wang scratch memory and the likelihood weights), so all 4500 at once would not fit
 z = reduce(vcat, Z1_bs)
 θ₀ = repeat(estimates, inner = (1, B))
-bs_time_missing = @elapsed bs_estimates_missing = neuralem(z, θ₀, burnin = burnin) 
+bs_groups = Iterators.partition(eachindex(z), 500)
+bs_time_missing = @elapsed bs_estimates_missing = reduce(hcat, [batched_em(sim, neuralMAP, z[g], θ₀[:, g]; burnin = burnin).estimates for g in bs_groups])
 
 # Conditional simulation 
 sea_ice_complete = Folds.map(1:K) do k 
@@ -182,9 +193,9 @@ for year in all_year
   θ = estimates[:, idx]
   β = θ[1]
   distributions = emissiondistributions(θ)
-  y_sims, z_sims = simulatehiddenpotts_parallel(dat, β, distributions; num_iterations = 1000, num_chains = max(B, 100))
-  z_sims = z_sims[:, :, end, :]
-  y_sims = y_sims[:, :, end, :]
+  y_sims, z_sims = simulatehiddenpotts(dat, β, distributions; nchains = max(B, 100), num_iterations = 1000)
+  z_sims = z_sims[:, :, 1, :]
+  y_sims = y_sims[:, :, 1, :]
   file_path = joinpath(int_path, "conditional_sims_$(year).h5")
   isfile(file_path) && rm(file_path) # remove file if it already exists
   h5write(file_path, "Z", z_sims)
@@ -197,11 +208,11 @@ end
 CSV.write(joinpath(int_path, "estimates.csv"), Tables.table(estimates), writeheader=false)
 inference_time = DataFrame(
     estimation_time = tm,
-    bootstrap_time_complete = bs_time_complete#,
-    #bootstrap_time_missing = bs_time_missing
+    bootstrap_time_complete = bs_time_complete,
+    bootstrap_time_missing = bs_time_missing
 )
 CSV.write(joinpath(int_path, "inference_time.csv"), inference_time)
 CSV.write(joinpath(int_path, "bs_estimates_complete.csv"), Tables.table(bs_estimates_complete), writeheader=false)
-# CSV.write(joinpath(int_path, "bs_estimates_missing.csv"), Tables.table(bs_estimates_missing), writeheader=false)
+CSV.write(joinpath(int_path, "bs_estimates_missing.csv"), Tables.table(bs_estimates_missing), writeheader=false)
 CSV.write(joinpath(int_path, "sie.csv"), Tables.table(sie), writeheader=false)
 

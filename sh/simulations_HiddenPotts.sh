@@ -23,8 +23,26 @@ else
     exit 1
 fi
 
-# Train the NBEs 
-OPENBLAS_NUM_THREADS=1 Rscript src/HiddenPotts/Train.R $quick
+if [[ -z "${TRAIN+x}" ]]; then
+  echo "Do you wish to retrain the neural networks (y), or use the trained networks included in the repository (n)? (y/n)"
+  read TRAIN
+fi
+
+if ! [[ $TRAIN == "y" || $TRAIN == "Y" || $TRAIN == "n" || $TRAIN == "N" ]]; then
+    echo "Please re-run and type y or n"
+    exit 1
+fi
+
+# Simulate the training, validation, test and scenario data (Julia, HiddenMarkovRandomFields.jl)
+julia --project=. --threads=auto src/HiddenPotts/SimulateData.jl $quick
+
+# Train the NBEs, unless the trained networks included in the repository are used
+if [[ $TRAIN == "y" || $TRAIN == "Y" ]]; then
+  julia --project=. --threads=auto src/HiddenPotts/Train.jl $quick
+fi
+
+# ABC, with the training data as its reference table (R)
+OPENBLAS_NUM_THREADS=1 Rscript src/HiddenPotts/ABC.R
 
 # Assess with missing data 
 julia --project=. --threads=auto src/HiddenPotts/Experiment.jl

@@ -17,7 +17,7 @@ First, download this repository and navigate to its top-level directory within t
 Before installing the software dependencies, users may wish to set up a [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/linux.html) environment, so that the dependencies of this repository do not affect the user's current installation. To create a conda environment, run the following command in terminal:
 
 ```
-conda create -n NeuralIncompleteData -c conda-forge julia=1.10.1 r-base nlopt
+conda create -n NeuralIncompleteData -c conda-forge julia=1.12.5 r-base nlopt
 ```
 
 Then activate the conda environment with:
@@ -28,7 +28,7 @@ conda activate NeuralIncompleteData
 
 The above conda environment installs Julia and R automatically. If you do not wish to use a conda environment, you will need to install Julia and R manually if they are not already on your system:  
 
-- Install [Julia 1.10.1](https://julialang.org/downloads/).
+- Install [Julia 1.12.5](https://julialang.org/downloads/).
 - Install [R >= 4.0.0](https://www.r-project.org/).
 
 Once Julia and R are setup, install the Julia and R package dependencies (given in `Project.toml` and `Manifest.toml`, and `dependencies.txt`, respectively) by running the following commands from the top-level of the repository:
@@ -40,13 +40,28 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 Rscript dependencies_install.R
 ```
 
+The Julia package [HiddenMarkovRandomFields.jl](https://github.com/msainsburydale/HiddenMarkovRandomFields.jl), used to simulate from the hidden Potts model, is not yet registered, so `Pkg.instantiate()` installs it from GitHub.
+
 ### Hardware requirements
 
 The fast construction of neural Bayes estimators requires graphical processing units (GPUs). Hence, although the code in this repository will run on the CPU, we recommend that the user run this code on a workstation with a GPU. Note that running the "quick" version of the code (see below) is still fast even on the CPU.
 
+### Trained networks
+
+The trained neural networks are included in the repository, so that the results can be reproduced without retraining them (which takes several hours). They are stored as `best_estimator.bson` in the following folders of `intermediates/`:
+
+| Study | Folders |
+|---|---|
+| Gaussian process (Section 3.2) | `GP/runs_EM/`, `GP/runs_masking/` |
+| Hidden Potts model (Section 3.3) | `HiddenPotts/runs_EM/`, `HiddenPotts/runs_masking/` |
+| Sea-ice application (Section 4) | `application/sea_ice/full/NBE/`, `application/sea_ice/sub/NBE/` |
+| Spatial generalized hyperbolic model (Section S4) | `GH/runs_EM/`, `GH/runs_masking/` |
+
+The replication script asks whether to retrain the networks or to use the included ones. The scripts for the individual studies take the answer from the environment variable `TRAIN` (for example, `TRAIN=n bash sh/simulations_HiddenPotts.sh`), and ask for it if it is not set. With the included networks, two results are not produced, because they need the training data or the training logs: the ABC estimates of the spatial generalized hyperbolic model, whose reference table is computed by `src/GH/Train.jl`, and the training times and risk profiles (`sh/training_info.sh`). Retraining overwrites the included networks, and `sh/clear.sh` deletes them; `git checkout -- intermediates` restores them.
+
 ### Reproducing the results
 
-The replication script is `sh/all.sh`, invoked using `bash sh/all.sh` from the top level of this repository. For all studies, the replication script will automatically train the neural estimators, generate estimates from both the neural and likelihood-based estimators, and populate the `img` folder with the figures and results of the manuscript.
+The replication script is `sh/all.sh`, invoked using `bash sh/all.sh` from the top level of this repository. For all studies, the replication script will train the neural estimators (or use the trained networks included in the repository; see above), generate estimates from both the neural and likelihood-based estimators, and populate the `img` folder with the figures and results of the manuscript.
 
 The nature of our experiments means that the run time for reproducing the results of the manuscript can be substantial (up to a day of computing time, depending on the computational resources available to the user). When running the replication script, the user will be prompted with an option to quickly establish that the code is working by training the neural networks with a small data set and a small number of epochs. Our envisioned workflow is to establish that the code is working with this "quick" option, clear the populated folders by entering `bash sh/clear.sh`, and then run the code in full (possibly over the weekend). **NB:** under this "quick" option, very few training samples and epochs are used when training the neural Bayes estimators, and the results produced will therefore not be meaningful and should not be interpreted.  
 

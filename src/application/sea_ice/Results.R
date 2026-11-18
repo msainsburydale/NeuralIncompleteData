@@ -23,7 +23,7 @@ options(warn = -1)
 
 img_path <- file.path("img", "application", "sea_ice")
 int_path <- file.path("intermediates", "application", "sea_ice")
-dir.create(img_path, recursive = TRUE, showWarnings = FALSE)
+invisible(lapply(file.path(img_path, c("full", "sub")), dir.create, recursive = TRUE, showWarnings = FALSE))
 
 land_mask <- readRDS(file.path(int_path, "full", "land_mask.rds"))
 land_border_mask <- readRDS(file.path(int_path, "full", "land_border_mask.rds"))
@@ -87,8 +87,8 @@ estimates <- do.call(rbind, estimates)
 p <- length(parameter_labels)
 q <- (p-1)/2 + 2
 beta_crit <- log(1 + sqrt(q))
-prior_lower_bound <- readRDS(file.path(int_path, "full", "prior_lower_bound.rds"))
-prior_upper_bound <- readRDS(file.path(int_path, "full", "prior_upper_bound.rds"))
+prior_lower_bound <- read.csv(file.path(int_path, "full", "prior_lower_bound.csv"), header = FALSE)[[1]] # written by Train.jl
+prior_upper_bound <- read.csv(file.path(int_path, "full", "prior_upper_bound.csv"), header = FALSE)[[1]]
 ylims <- c(
   0.5,
  # prior_lower_bound[1],
@@ -723,5 +723,33 @@ Y_MAP <- ggplot(Y_MAP_df, aes(Var1, Var2, fill = value)) +
 figure <- egg::ggarrange(plots = list(data, Z_pred, Y_MAP), ncol = 1)
 
 ggsv("predictions_and_Y", figure, path = img_path, width = 11.3, height = 7.7)
+
+# ---- Assessment of the NBEs with the simulated test data (written by src/application/sea_ice/Train.jl) ----
+
+set.seed(1)
+for (domain in c("full", "sub")) {
+  assessment_file <- file.path(int_path, domain, "assessment_test.csv")
+  if (!file.exists(assessment_file)) next # only after training (not with the trained networks included in the repository)
+  df <- read_csv(assessment_file, show_col_types = FALSE) %>%
+    mutate(parameter = factor(parameter, levels = c("β", "a₁", "a₂", "b₁", "b₂"),
+                              labels = c("beta", "a[1]", "a[2]", "b[1]", "b[2]"))) %>%
+    group_by(k) %>%
+    mutate(beta_truth = truth[parameter == "beta"]) %>%
+    ungroup() %>%
+    filter(beta_truth < beta_crit + 0.15)
+  df <- df[sample(nrow(df)), ] # random plotting order
+  figure <- ggplot(df) +
+    geom_point(aes(x = truth, y = estimate, colour = beta_truth), alpha = 0.6, size = 0.4) +
+    geom_abline(colour = "black", linetype = "dashed") +
+    scale_colour_gradientn(
+      colours = c("#0571B0", "#f0f0f0", "red"),
+      values = scales::rescale(c(min(df$beta_truth), beta_crit, max(df$beta_truth))),
+      name = expression(beta)
+    ) +
+    ggh4x::facet_grid2(estimator ~ parameter, scales = "free", independent = "y", labeller = label_parsed) +
+    theme_bw() +
+    theme(strip.text.y = element_blank(), strip.background = element_blank(), strip.text = element_text(size = 12))
+  ggsv("NBE_assessment", figure, path = file.path(img_path, domain), width = 8.3, height = 2.4)
+}
 
 options(warn = oldw)

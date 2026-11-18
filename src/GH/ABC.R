@@ -15,7 +15,7 @@ library("abctools")
 library("readr")
 library("future.apply")
 Sys.setenv(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
-plan(multisession, workers = availableCores() %/% 2)
+plan(multisession, workers = min(32, availableCores() %/% 2))
 })
 
 parameter_labels = c(

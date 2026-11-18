@@ -1,136 +1,75 @@
-using ArgParse
-arg_table = ArgParseSettings()
-@add_arg_table arg_table begin
-	"--quick"
-		help = "A flag controlling whether or not a computationally inexpensive run should be done."
-		action = :store_true
+# Spatial generalised-hyperbolic (GH) model (Section S4 of the supplement): assessment of the estimators with
+# incomplete data. The NBEs are trained by src/GH/Train.jl.
+#
+# Usage (from the top level of the repository):
+#   julia --project=. --threads=auto src/GH/Experiment.jl [--quick]
+
+quick = "--quick" in ARGS
+
+# On x86-64, MKL is used for BLAS and LAPACK: OpenBLAS serialises concurrent calls from many Julia threads (which
+# then spend most of their time waiting on a lock in the kernel), whereas MKL does not. MKL's sequential threading
+# layer is used, since parallelism is over Julia threads: with its default OpenMP layer, every Julia thread that calls
+# MKL starts its own team of threads. The layer must be chosen before MKL is loaded.
+@static if Sys.ARCH === :x86_64
+    ENV["MKL_THREADING_LAYER"] = "SEQUENTIAL"
+    using MKL
 end
-parsed_args = parse_args(arg_table)
-quick = parsed_args["quick"]
-
-m_test = 150
-
 using NeuralEstimators
 using NeuralEstimators: estimate
+using Flux
+using CUDA, cuDNN # cuDNN: Flux convolutions on NVIDIA GPUs
 using BenchmarkTools
 using BSON: @load
 using DelimitedFiles
-using Random: seed!
+using LinearAlgebra
+using Random: seed!, Xoshiro
 using StatsBase
-using CUDA
+using Statistics: mean
 using CSV
 using DataFrames
 
-include(joinpath(pwd(), "src", "GH", "MAP.jl"))
-include(joinpath(pwd(), "src", "EM.jl"))
-include(joinpath(pwd(), "src", "GH", "Simulation.jl")) 
-include(joinpath(pwd(), "src", "GH", "ABC_summaries.jl"))
+# Parallelism is over data sets (and conditional simulations), so BLAS uses a single thread
+BLAS.set_num_threads(1)
+
 include(joinpath(pwd(), "src", "Architecture.jl"))
+include(joinpath(pwd(), "src", "GH", "Architecture.jl"))
+include(joinpath(pwd(), "src", "GH", "Simulation.jl"))
+include(joinpath(pwd(), "src", "GH", "MAP.jl"))
+include(joinpath(pwd(), "src", "GH", "ABC_summaries.jl"))
+include(joinpath(pwd(), "src", "EM.jl"))
 int_path = joinpath(pwd(), "intermediates", "GH")
 abc_path = joinpath(int_path, "ABC")
-if !isdir(int_path) mkpath(int_path) end
-if !isdir(abc_path) mkpath(abc_path) end
+mkpath(abc_path)
 
+m_test = 150 # number of replicates in each data set
 prior_mean = mean.([ξ.Ω...])
-prior_upper_bound = maximum.([ξ.Ω...])
 prior_lower_bound = minimum.([ξ.Ω...])
+prior_upper_bound = maximum.([ξ.Ω...])
 d = length(prior_mean)
+ξ = merge(ξ, (θ₀ = prior_mean,)) # initial value for the MAP optimiser (the EM algorithm also starts from the prior mean)
 
-function initialize_estimator(d::Integer; input_channels, outputactivation, dropout::Bool = true, activation = relu)
-    ψ = Chain(
-        Conv((3, 3), input_channels => 16, pad = 1, bias = false),
-        BatchNorm(16, relu),
-        ResidualBlock((3, 3), 16 => 32, stride=2),
-        ResidualBlock((3, 3), 32 => 64),
-        GlobalMeanPool(),
-        Flux.flatten
-    )
-    ϕ = Chain(
-        Dense(64, 128, activation), 
-        (dropout ? [Dropout(0.05)] : [])...,
-        Dense(128, 128, activation),
-        (dropout ? [Dropout(0.05)] : [])..., 
-        Dense(128, d), 
-        outputactivation
-    )
+# ---- Load the NBEs ----
 
-	# estimator = PointEstimator(DeepSet(ψ, ϕ))
-
-	summary_network = DeepSet(ψ, identity)
-	inference_network = ϕ
-	estimator = MAPEstimator(summary_network, inference_network)
-
+function loadnetwork(input_channels, folder)
+    estimator = gh_architecture(d, prior_lower_bound, prior_upper_bound; input_channels = input_channels)
+    loadpath = joinpath(int_path, folder, "best_estimator.bson")
+    @load loadpath model_state
+    Flux.loadmodel!(estimator, model_state)
     return estimator
-end 
-
-# ---- Train the NBEs ----
-
-# Number of parameter vectors and epochs used during training
-K = quick ? 2000 : 10000 #25000
-epochs = quick ? 10 : 200
-
-# Simulate training data
-sim_time = @elapsed begin
-    @info "Generating training data..."
-    seed!(1)
-    @info "Sampling parameter vectors used for validation..."
-    θ_val = Parameters(K, ξ; J = 5)
-    @info "Sampling parameter vectors used for training..."
-    θ_train = Parameters(K, ξ; J = 5)
-    @info "Simulating training data..."
-    Z_val = simulate(θ_val, m_test)
-    Z_train = simulate(θ_train, m_test)
 end
-writedlm(joinpath(int_path, "sim_time.csv"), sim_time, ',')
+neuralMAP = loadnetwork(1, "runs_EM")
+maskedestimator = loadnetwork(2, "runs_masking")
 
-@info "Training EM NBEs..."
-neuralMAP = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 1)
-neuralMAP = train(neuralMAP, θ_train, θ_val, Z_train, Z_val; epochs = epochs, savepath = joinpath(int_path, "runs_EM"))
+# The networks are moved to the GPU (if there is one) once: batched_em and estimate then use them there without
+# copying them, so the timings do not include copying the weights to the GPU
+neuralMAP = Flux.gpu_device()(neuralMAP)
+maskedestimator = Flux.gpu_device()(maskedestimator)
 
-@info "Training Masking NBEs..."
-maskedestimator = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 2)
-function generatemissing_MCAR(Z)
-	K = length(Z)
-	n = prod(size(Z[1])[1:2])                    # number of elements in the complete-data vector 
-	n₁ = StatsBase.sample(Int(ceil(0.5*n)):n, K) # number of elements in the incomplete-data vector 
-	Z₁ = removedata.(Z, n₁; fixed_pattern = true) 
-	UW = encodedata.(Z₁) 
-	return UW
-end
-# simulatemissing_MCAR(parameters, m) = generatemissing_MCAR(simulate(parameters, m))
-# maskedestimator = train(maskedestimator, θ_train, θ_val, simulatemissing_MCAR, m = m_test, epochs = epochs, epochs_per_Z_refresh = 3, savepath = joinpath(int_path, "runs_masking"))
-UW_train = generatemissing_MCAR(Z_train)
-UW_val = generatemissing_MCAR(Z_val)
-maskedestimator = train(maskedestimator, θ_train, θ_val, UW_train, UW_val; epochs = epochs, savepath = joinpath(int_path, "runs_masking"))
+# ---- EM algorithm ----
 
-# ABC summary statistics
-@info "Running ABC..."
-t₁ = @elapsed T_val   = summary_statistic(Z_val, D)
-t₂ = @elapsed T_train = summary_statistic(Z_train, D)
-t = t₁ + t₂
-T = hcat(T_train, T_val)
-θ = hcat(θ_train.θ, θ_val.θ)
-writedlm(joinpath(abc_path, "sumstats_train.csv"), T, ',')
-writedlm(joinpath(abc_path, "theta_train.csv"), θ, ',')
-writedlm(joinpath(abc_path, "sumstats_time.csv"), t, ',')
-
-# ---- Load NBEs ----
-
-neuralMAP = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 1)
-loadpath = joinpath(int_path, "runs_EM", "ensemble.bson")
-@load loadpath model_state
-Flux.loadmodel!(neuralMAP, model_state)
-
-maskedestimator = architecture(d, prior_lower_bound, prior_upper_bound; input_channels = 2)
-loadpath = joinpath(int_path, "runs_masking", "ensemble.bson")
-@load loadpath model_state
-Flux.loadmodel!(maskedestimator, model_state)
-
-# ---- EM object ----
-
-θ₀ = prior_mean
-ξ = merge(ξ, (θ₀ = θ₀,))
-neuralem = EM(simulateconditional, neuralMAP, θ₀)
+# Hyperparameters of the EM approach (the same for all simulation studies)
+sim = GHEMSimulator(ξ; nsims = quick ? 3 : 30)
+em_kwargs = (niterations = quick ? 3 : 50, burnin = quick ? 1 : 5, tol = 0.01, nconsecutive = quick ? 1 : 3)
 
 # ---- EM convergence ----
 
@@ -140,7 +79,7 @@ Z = simulate(parameters, m_test)
 θ = parameters.θ
 distances = [norm(θ[:, j] .- prior_mean) for j in 1:size(θ, 2)]
 closest = argmin(distances)
-θ = θ[:, closest ]
+θ = θ[:, closest]
 Z = Z[closest]
 n = prod(size(Z)[1:end-1])
 n₁ = Int(ceil(0.8n)) # number of observed pixels in each image
@@ -148,70 +87,31 @@ Z₁ = removedata(Z, n₁; fixed_pattern = true)
 
 prior_range = prior_upper_bound - prior_lower_bound
 all_θ₀ = [prior_lower_bound + 0.05 * prior_range, prior_upper_bound - 0.05 * prior_range]
-df = run_EM(neuralem, Z₁, all_θ₀; parameter_names = parameter_names, ξ = ξ)
-df_theta = DataFrame(parameter = parameter_names, value = θ)
+df = run_EM(sim, neuralMAP, Z₁, all_θ₀; parameter_names = parameter_names, all_nsims = [1, 10, 30], rng = Xoshiro(1))
 CSV.write(joinpath(int_path, "EM_iterates.csv"), df)
-CSV.write(joinpath(int_path, "EM_iterates_truth.csv"), df_theta)
+CSV.write(joinpath(int_path, "EM_iterates_truth.csv"), DataFrame(parameter = parameter_names, value = θ))
 
-# ---- Assess the estimators' statistical efficiency ----
+# ---- Test data ----
 
-# Simulate testing data 
 seed!(1)
-θ_scenarios = Parameters(5, ξ) 
+θ_scenarios = Parameters(5, ξ)
 Z_scenarios = simulate(θ_scenarios, m_test, quick ? 10 : 100)
 
 seed!(1)
 θ_test = Parameters(quick ? 50 : 1000, ξ)
 Z_test = simulate(θ_test, m_test)
 
-# ABC summary statistics  
-T_test = summary_statistic(Z_test, D)
-writedlm(joinpath(abc_path, "sumstats_test_complete.csv"), T_test, ',')
+# ABC summary statistics of the complete data
+writedlm(joinpath(abc_path, "sumstats_test_complete.csv"), summary_statistic(Z_test, D), ',')
 writedlm(joinpath(abc_path, "theta_test.csv"), θ_test.θ, ',')
-T_scenarios = summary_statistic(Z_scenarios, D)
-writedlm(joinpath(abc_path, "sumstats_scenarios_complete.csv"), T_scenarios, ',')
+writedlm(joinpath(abc_path, "sumstats_scenarios_complete.csv"), summary_statistic(Z_scenarios, D), ',')
 writedlm(joinpath(abc_path, "theta_scenarios.csv"), θ_scenarios.θ, ',')
 
-# Save complete-data estimates
-estimates_complete = estimateinbatches(neuralMAP, Z_test)
-writedlm(joinpath(int_path, "estimates_test_complete.csv"), estimates_complete, ',')
+# Complete-data estimates
+writedlm(joinpath(int_path, "estimates_test_complete.csv"), estimate(neuralMAP, Z_test), ',')
 writedlm(joinpath(int_path, "theta_test.csv"), θ_test.θ, ',')
-estimates_complete = estimateinbatches(neuralMAP, Z_train)
-writedlm(joinpath(int_path, "estimates_train_complete.csv"), estimates_complete, ',')
-writedlm(joinpath(int_path, "theta_train.csv"), θ_train.θ, ',')
 
-function remove_quarter_circle(Z)
-    n_rows, n_cols = size(Z)[1:2]  # Get matrix dimensions
-
-    # Calculate row and column midpoints (top-right quadrant)
-    row_mid = ceil(Int, n_rows / 2)
-    col_mid = ceil(Int, n_cols / 2)
-
-    # Determine the radius of the quarter circle (smallest half-dimension)
-    radius = min(row_mid, n_cols - col_mid)
-
-    # Create Cartesian indices for the top-right quadrant
-	indices_to_remove = []
-    for i in 1:row_mid  # Loop through the top half rows
-        for j in col_mid:n_cols  # Loop through the right half columns
-            # Calculate the distance from the top-right corner
-            dist = sqrt((i - 1)^2 + (j - n_cols)^2)
-
-            # If distance is less than or equal to the radius, mark for removal
-            if dist <= radius
-                push!(indices_to_remove, (i, j))  
-            end
-        end
-    end
-
-	# Set the identified indices to missing
-	Z₁ = Array{Union{Missing, eltype(Z)}}(Z) # allow missing values in array
-    for idx in indices_to_remove
-        Z₁[idx[1], idx[2], :, :] .= missing
-    end
-
-    return Z₁
-end
+# ---- Missingness mechanisms ----
 
 function remove_complex_missingness(Z)
     n_rows, n_cols = size(Z)[1:2]
@@ -234,7 +134,7 @@ function remove_complex_missingness(Z)
 
             # If distance is less than or equal to the radius, mark for removal
             if dist <= radius
-                push!(indices_to_remove, (i, j))  
+                push!(indices_to_remove, (i, j))
             end
         end
     end
@@ -260,100 +160,114 @@ function remove_complex_missingness(Z)
     return Z₁
 end
 
+# ---- Assessment with incomplete data ----
+
+runtimes = DataFrame(set = String[], missingness = String[], estimator = String[], time = Float64[], n = Int[])
+
+# Long-format data frame of estimates (the same format as src/GH/ABC.R): estimates[:, i] is the estimate for data set
+# i, with true value θ[:, k] for k = (i - 1) mod K + 1
+function estimates_dataframe(estimates, θ, name)
+    K = size(θ, 2)
+    J = size(estimates, 2) ÷ K
+    DataFrame(
+        m = m_test,
+        k = repeat(repeat(1:K, inner = d), outer = J),
+        j = repeat(1:J, inner = K * d),
+        estimator = name,
+        parameter = repeat(parameter_names, outer = K * J),
+        estimate = vec(estimates),
+        truth = vec(repeat(θ, 1, J))
+    )
+end
+
 function assessmissing(Z, θ, missingness::String, set::String)
 
-	println("\nEstimating over the $set set...")
+    println("\nAssessing the estimators with $missingness data ($set set, $(length(Z)) data sets)...")
+    record(estimator, t) = push!(runtimes, (set, missingness, estimator, t, length(Z)))
 
-	seed!(1)
+    seed!(1)
 
-	# Generate missingness
-	if missingness == "MCAR"
-		n = prod(size(Z[1])[1:end-1])
-		n₁ = Int(ceil(0.8n)) # number of observed pixels in each image
-		Z₁ = removedata.(Z, n₁; fixed_pattern = true)
-	elseif missingness == "MB"
-		Z₁ = remove_complex_missingness.(Z)
-	end
+    # Generate missingness
+    if missingness == "MCAR"
+        n = prod(size(Z[1])[1:end-1])
+        n₁ = Int(ceil(0.8n)) # number of observed pixels in each image
+        Z₁ = removedata.(Z, n₁; fixed_pattern = true)
+    elseif missingness == "MB"
+        Z₁ = remove_complex_missingness.(Z)
+    end
 
-    # ABC summary statistics  
-    T = summary_statistic(Z₁, D)
-    writedlm(joinpath(abc_path, """sumstats_$(missingness)_$(set).csv"""), T, ',')
+    # ABC summary statistics
+    writedlm(joinpath(abc_path, "sumstats_$(missingness)_$(set).csv"), summary_statistic(Z₁, D), ',')
 
-	# Save data for plotting
-	if set == "scenarios"
-	  	K = size(θ, 2)
-		num_rep = length(Z) ÷ K
-		colons = ntuple(_ -> (:), ndims(Z₁[1]) - 1)
-		z = broadcast(z -> vec(z[colons..., 1]), Z₁) # save only the first replicate of each parameter configuration
-		z = vcat(z...)
-		n = prod(size(Z₁[1])[1:end-1])
-		k = repeat(repeat(1:K, outer = num_rep), inner = n)
-		j = repeat(repeat(1:num_rep, inner = n), inner = K)
-		df = DataFrame(Z = z, k = k, j = j)
-		CSV.write(joinpath(int_path, "Z_$(missingness).csv"), df)
-	end
+    # Save data for plotting
+    if set == "scenarios"
+        K = size(θ, 2)
+        num_rep = length(Z) ÷ K
+        colons = ntuple(_ -> (:), ndims(Z₁[1]) - 1)
+        z = broadcast(z -> vec(z[colons..., 1]), Z₁) # save only the first replicate of each data set
+        z = vcat(z...)
+        n = prod(size(Z₁[1])[1:end-1])
+        k = repeat(repeat(1:K, outer = num_rep), inner = n)
+        j = repeat(repeat(1:num_rep, inner = n), inner = K)
+        CSV.write(joinpath(int_path, "Z_$(missingness).csv"), DataFrame(Z = z, k = k, j = j))
+    end
 
-  println("  Running the masking NBE...")
-	assessment = assess(
-		maskedestimator, θ, encodedata.(Z₁);
-		estimator_name = "masking",
-		parameter_names = ξ.parameter_names,
-	)
+    println("  Running the masking NBE...")
+    UW = encodedata.(Z₁)
+    estimate(maskedestimator, UW[1:1]) # compilation
+    t = @elapsed θ̂_masking = estimate(maskedestimator, UW)
+    record("masking", t)
 
-   println("  Running the EM NBE...")
-   θ₀ = estimate(maskedestimator, encodedata.(Z₁))
-   assessment = merge(assessment, assess(
-		(Z₁, ξ) -> neuralem(Z₁, θ₀; burnin = 5, nsims = 10, niterations = 10, use_gpu = false, ξ = ξ),
-		θ, Z₁;
-        ξ = ξ,
-		estimator_name = "EM",
-		parameter_names = ξ.parameter_names, 
-		use_gpu = false 
-	))
+    println("  Running the EM NBE...")
+    # The EM algorithm starts from the prior mean (as does the MAP optimiser), as in Section 3.1 of the paper
+    t = @elapsed em = batched_em(sim, neuralMAP, Z₁, prior_mean; em_kwargs..., rng = Xoshiro(1), verbose = true)
+    record("EM", t)
+    CSV.write(joinpath(int_path, "EM_diagnostics_$(missingness)_$(set).csv"), DataFrame(k = eachindex(Z₁), niterations = em.niterations, converged = em.converged))
+    @info "Covariance matrices regularised so far: $(gh_jitter_count[])"
 
-	println("  Running the MAP estimator...")
-	assessment = merge(assessment, assess(
-		MAP, θ, Z₁; 
-        ξ = ξ,
-		estimator_name = "MAP",
-		parameter_names = ξ.parameter_names, 
-		use_gpu = false
-	))
-	
-	CSV.write(joinpath(int_path, "estimates_$(missingness)_$(set).csv"), assessment.df)
+    println("  Running the MAP estimator...")
+    t = @elapsed θ̂_MAP = MAP(Z₁, ξ)
+    record("MAP", t)
 
-	return assessment
+    df = vcat(
+        estimates_dataframe(θ̂_masking, θ, "masking"),
+        estimates_dataframe(em.estimates, θ, "EM"),
+        estimates_dataframe(θ̂_MAP, θ, "MAP")
+    )
+    CSV.write(joinpath(int_path, "estimates_$(missingness)_$(set).csv"), df)
+    return df
 end
 
 for missingness in ["MCAR", "MB"]
-    println("\nAssessing the estimators with $missingness data...")
-    assessmissing(Z_test, θ_test, missingness, "test") 
-    assessmissing(Z_scenarios, θ_scenarios, missingness, "scenarios")
+    assessmissing(Z_test, θ_test.θ, missingness, "test")
+    assessmissing(Z_scenarios, θ_scenarios.θ, missingness, "scenarios")
 end
+CSV.write(joinpath(int_path, "runtime_total.csv"), runtimes)
 
-# ---- Assess the estimators' computational efficiency ----
+# ---- Run times for a single data set ----
 
-println("\nAssessing the run-times for a single data set...")
+println("\nAssessing the run times for a single data set...")
 
-# Missing data
-Z₁ = removedata(Z_test[1], 0.1)
-df = DataFrame(estimator = [], time = [])
+seed!(1)
+n = prod(size(Z_test[1])[1:end-1])
+Z₁ = removedata(Z_test[1], Int(ceil(0.8n)); fixed_pattern = true)
+df = DataFrame(estimator = String[], time = Float64[])
 
 # Masking
-t = @belapsed gpu(maskedestimator)(gpu(encodedata(Z₁)))
-append!(df, DataFrame(estimator = "masking", time = t))
+UW₁ = encodedata(Z₁)
+push!(df, ("masking", @belapsed estimate($maskedestimator, $UW₁)))
 
-# EM
-t = @belapsed θ₀ = cpu(gpu(maskedestimator)(gpu(encodedata(Z₁))))
-t += @belapsed neuralem(Z₁, θ₀; ξ = ξ, burnin = 2, niterations = 5)
-append!(df, DataFrame(estimator = "neuralEM", time = t))
+# EM (started from the prior mean)
+em_single(Z₁) = batched_em(sim, neuralMAP, Z₁, prior_mean; em_kwargs..., rng = Xoshiro(1))
+em_result = em_single(Z₁)
+push!(df, ("neuralEM", @belapsed em_single($Z₁) samples = 10 evals = 1))
+push!(df, ("EM_niterations", size(em_result.iterates, 2) - 1))
 
 # MAP
-t = @belapsed MAP([Z₁], ξ) 
-append!(df, DataFrame(estimator = "MAP", time = t))
+push!(df, ("MAP", @belapsed MAP($([Z₁]), ξ) samples = 3 evals = 1))
 
-# ABC summary statistics 
-t = @belapsed summary_statistic(Z₁, D)
-append!(df, DataFrame(estimator = "ABC", time = t))
+# ABC summary statistics
+push!(df, ("ABC", @belapsed summary_statistic($Z₁, D)))
 
 CSV.write(joinpath(int_path, "runtime.csv"), df)
+println(df)

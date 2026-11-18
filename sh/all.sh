@@ -15,6 +15,16 @@ if ! [[ $quick_str == "y" ||  $quick_str == "Y" || $quick_str == "n" ||  $quick_
     exit 1
 fi
 
+if [[ -z "${TRAIN+x}" ]]; then
+  echo "Do you wish to retrain the neural networks (y), or use the trained networks included in the repository (n)? (y/n)"
+  read TRAIN
+fi
+
+if ! [[ $TRAIN == "y" || $TRAIN == "Y" || $TRAIN == "n" || $TRAIN == "N" ]]; then
+    echo "Please re-run and type y or n"
+    exit 1
+fi
+
 echo ""
 echo "#### Starting main-text simulation studies (Section 3) ####"
 echo ""
@@ -27,7 +37,11 @@ echo ""
 echo "#### Starting supplementary experiments ####"
 echo ""
 source sh/simulations_GH.sh             # Section S4
-source sh/training_info.sh              # Training run time and risk profiles
+if [[ $TRAIN == "y" || $TRAIN == "Y" ]]; then
+  source sh/training_info.sh            # Training run time and risk profiles (from the training logs)
+else
+  echo "Skipping the training run times and risk profiles, which come from the logs of training"
+fi
 source sh/supplement.sh                 # Other supplementary results
 
 # Remove intermediate networks to reduce the folder’s memory size
