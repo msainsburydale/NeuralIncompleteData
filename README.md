@@ -57,7 +57,7 @@ The trained neural networks are included in the repository, so that the results 
 | Sea-ice application (Section 4) | `application/sea_ice/full/NBE/`, `application/sea_ice/sub/NBE/` |
 | Spatial generalized hyperbolic model (Section S4) | `GH/runs_EM/`, `GH/runs_masking/` |
 
-The replication script asks whether to retrain the networks or to use the included ones. The scripts for the individual studies take the answer from the environment variable `TRAIN` (for example, `TRAIN=n bash sh/simulations_HiddenPotts.sh`), and ask for it if it is not set. With the included networks, two results are not produced, because they need the training data or the training logs: the ABC estimates of the spatial generalized hyperbolic model, whose reference table is computed by `src/GH/Train.jl`, and the training times and risk profiles (`sh/training_info.sh`). Retraining overwrites the included networks, and `sh/clear.sh` deletes them; `git checkout -- intermediates` restores them.
+The replication script asks whether to retrain the networks or to use the included ones. 
 
 ### Reproducing the results
 
