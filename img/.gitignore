@@ -3,3 +3,7 @@
 # Except these files
 !schematic.png
 !.gitignore
+# Animations of the neural EM algorithm (the README shows sea_ice.gif)
+!animation/
+!animation/hidden_potts.gif
+!animation/sea_ice.gif

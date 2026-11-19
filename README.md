@@ -1,8 +1,8 @@
 # Source code for "Neural Parameter Estimation with Incomplete Data"
 
-![Figure 2: The inference stage of the neural EM algorithm.](/img/schematic.png?raw=true)
+![The neural EM algorithm applied to the sea-ice data.](/img/animation/sea_ice.gif?raw=true)
 
-> _**Figure 2**: The inference stage of the neural EM algorithm. Data with missing entries are completed by simulating conditionally on the incomplete data and the current estimates. The conditionally-independent replicates are then input to a neural Bayes estimator trained to approximate the MAP estimator, with the resulting estimates used for conditional simulation in the next iteration of the algorithm._
+> _**Animation**: the neural EM algorithm applied to the sea-ice data of 1 September 1995 (Section 4). Top: in each iteration, the missing data (red) are completed by simulating conditionally on the observed data and the current estimates, and a neural Bayes estimator trained to approximate the MAP is applied to the completed data sets. Bottom: the estimates of each parameter, with their running mean after a burn-in of five iterations._
 
 This repository contains the source code for reproducing the results in ["Neural Parameter Estimation with Incomplete Data"](https://arxiv.org/abs/2501.04330).
 
